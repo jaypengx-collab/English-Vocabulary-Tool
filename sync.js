@@ -41,14 +41,12 @@ const LAST_UPDATE_KEY = "vocab_sync_last_update";
 // becomes a real question (see promptRestoreBackupIfAny).
 const BACKUP_BEFORE_JOIN_KEY = "vocab_sync_backup_before_join";
 
-const SYNC_SCHEMA_VERSION = 1;
-// A synced word's recentAttempts ring buffer is capped smaller than the
-// locally-kept one (logic.js's CONFIG.maxRecentAttempts, 12) - it exists
-// purely to show "you recently typed X, Y, Z" in the Progress/Review-list
-// UI, not for any scoring logic, so a shorter history synced across
-// devices is a fine trade against keeping every device's upload small even
-// with thousands of attempted words.
-const RECENT_ATTEMPTS_SYNC_CAP = 5;
+// Bumped from 1 because the wire shape of `progress` changed (keyed
+// objects -> positional tuples, see "Compact wire format" below) - not a
+// back-compat concern in practice (this collection has never shipped to
+// real users under the old shape), just good hygiene so a stray old
+// payload is never silently misread as the new format.
+const SYNC_SCHEMA_VERSION = 2;
 // Mirrors Orbit's own activity-driven throttle: a receiving device that's
 // genuinely idle sends nothing, and a burst of quiz answers (this app
 // saves progress after EVERY single question, unlike Orbit's "save the
@@ -134,26 +132,161 @@ async function decodeSyncPayload(text) {
   return JSON.parse(await new Response(stream).text());
 }
 
-function trimProgressForSync(progress) {
-  const trimmed = {};
+/* ---------- Compact wire format for progress ----------
+   Firestore/Workers KV quota is finite and shared by every device that
+   ever syncs, across every learner using this app - a wasteful format
+   here isn't just an optimization, it's spending someone else's (the
+   deployer's) free-tier budget faster than it needs to. gzip (see above)
+   already erases most of the cost of repeating the same field NAMES
+   thousands of times, but it can't erase data that's genuinely redundant
+   or genuinely never read back - only removing that helps further. Per
+   attempted word, the plain localStorage shape (see logic.js's
+   createEmptyWordHistory) carries several fields that fall into exactly
+   that bucket:
+
+     - `word`, `level`, `length` are dropped entirely - the map's own key
+       IS the word (lowercased), and VOCAB_INDEX already has word/level for
+       every real vocab entry, so migrateProgressStore recovers both on
+       the receiving device exactly as it already does for legacy imports
+       missing the same fields.
+     - `incorrect` is dropped - always exactly `attempts - correct` (every
+       recorded attempt increments exactly one of the two, alongside
+       `attempts` itself - see logic.js's recordAttempt), so storing it is
+       pure duplication.
+     - `firstSeen` and `recentResponseMs` are dropped - grepping this repo
+       confirms neither is read by any app.js render path or logic.js
+       computation today. Reconstructed on decode anyway (firstSeen falls
+       back to lastSeen, recentResponseMs to the newest kept
+       recentAttempts entry's own responseMs - which, since that array
+       always keeps the MOST RECENT attempts, is not a guess but the exact
+       original value) so a synced entry still looks completely normal to
+       anything that starts reading these fields later.
+     - `box`/`due`/`inWrongList` are dropped - dead fields kept in the
+       local shape only so migrating a genuinely ancient v1 backup doesn't
+       choke; a synced entry is never that.
+     - `lastResult` becomes a 1-digit code instead of the string
+       "correct"/"incorrect".
+     - `lastSeen` (and each recentAttempts entry's `timestamp`) becomes an
+       integer number of SECONDS before the snapshot's own `exportedAt`,
+       instead of an absolute millisecond Unix timestamp - shorter to
+       write out, and for anything practiced recently (the common case for
+       data worth syncing in the first place) a much smaller number to
+       begin with.
+     - `avgCorrectResponseMs` is rounded to the nearest millisecond -
+       logic.js's EMA smoothing otherwise leaves a long, effectively
+       random (so gzip can't help) decimal tail on almost every word.
+     - Every remaining field is written as a fixed-position ARRAY element
+       instead of a `{"key": value}` pair, so the field name itself is
+       never written out at all, and recentAttempts is capped to
+       RECENT_ATTEMPTS_SYNC_CAP entries with each entry its own compact
+       tuple (`attemptNumber` dropped - confirmed unread outside this
+       file's own tests).
+
+   None of this touches the LOCAL copy kept in localStorage - only what
+   gets written into the snapshot before compression. compactProgressForSync
+   runs right before encodeSyncPayload; expandSyncedProgress runs right
+   after decodeSyncPayload, turning a pulled snapshot back into the exact
+   shape window.VocabState.applySyncedSnapshot already expects (the same
+   shape Logic.migrateProgressStore itself understands), so nothing
+   downstream of that has to know this compact format exists. */
+
+// Deliberately small - see the file-level comment above on why a shorter
+// history still shows a useful "you've mistyped this before" pattern
+// without costing much once multiplied across thousands of words.
+const RECENT_ATTEMPTS_SYNC_CAP = 3;
+const LAST_RESULT_TO_CODE = { correct: 1, incorrect: 2 };
+const LAST_RESULT_FROM_CODE = { 1: "correct", 2: "incorrect" };
+
+function secondsBefore(baseMs, pastMs) {
+  return typeof pastMs === "number" && pastMs > 0 ? Math.max(0, Math.round((baseMs - pastMs) / 1000)) : 0;
+}
+
+function compactAttempt(a, baseMs) {
+  const correct = !!a.correct;
+  return [
+    correct ? 1 : 0,
+    typeof a.responseMs === "number" ? Math.round(a.responseMs) : null,
+    secondsBefore(baseMs, a.timestamp),
+    correct ? null : typeof a.answer === "string" ? a.answer : null,
+  ];
+}
+function expandAttempt(tuple, baseMs) {
+  const correct = !!tuple[0];
+  return {
+    correct: correct,
+    responseMs: tuple[1],
+    timestamp: baseMs - tuple[2] * 1000,
+    answer: correct ? undefined : tuple[3] || undefined,
+  };
+}
+
+function compactHistory(h, baseMs) {
+  const recent = (Array.isArray(h.recentAttempts) ? h.recentAttempts : []).slice(-RECENT_ATTEMPTS_SYNC_CAP);
+  return [
+    h.attempts || 0,
+    h.correct || 0,
+    h.correctStreak || 0,
+    typeof h.avgCorrectResponseMs === "number" ? Math.round(h.avgCorrectResponseMs) : null,
+    LAST_RESULT_TO_CODE[h.lastResult] || 0,
+    secondsBefore(baseMs, h.lastSeen),
+    h.lastWrongAnswer || null,
+    recent.map((a) => compactAttempt(a, baseMs)),
+  ];
+}
+function expandHistory(tuple, baseMs) {
+  const attempts = tuple[0] || 0;
+  const correct = tuple[1] || 0;
+  const recentAttempts = (tuple[7] || []).map((t) => expandAttempt(t, baseMs));
+  const lastSeen = baseMs - (tuple[5] || 0) * 1000;
+  const newestAttempt = recentAttempts.length ? recentAttempts[recentAttempts.length - 1] : null;
+  return {
+    attempts: attempts,
+    correct: correct,
+    incorrect: Math.max(0, attempts - correct),
+    correctStreak: tuple[2] || 0,
+    avgCorrectResponseMs: typeof tuple[3] === "number" ? tuple[3] : null,
+    recentResponseMs: newestAttempt ? newestAttempt.responseMs : null,
+    lastWrongAnswer: tuple[6] || null,
+    recentAttempts: recentAttempts,
+    firstSeen: lastSeen,
+    lastSeen: lastSeen,
+    lastResult: LAST_RESULT_FROM_CODE[tuple[4]],
+  };
+}
+
+function compactProgressForSync(progress, baseMs) {
+  const compact = {};
   for (const key of Object.keys(progress || {})) {
     const history = progress[key];
     if (!history || typeof history !== "object") continue;
-    const copy = Object.assign({}, history);
-    if (Array.isArray(copy.recentAttempts) && copy.recentAttempts.length > RECENT_ATTEMPTS_SYNC_CAP) {
-      copy.recentAttempts = copy.recentAttempts.slice(-RECENT_ATTEMPTS_SYNC_CAP);
-    }
-    trimmed[key] = copy;
+    compact[key] = compactHistory(history, baseMs);
   }
-  return trimmed;
+  return compact;
+}
+// `baseMs` MUST be the same snapshot's own `exportedAt` the compact data
+// was written relative to (see buildSyncSnapshotData/pullSnapshot) - every
+// timestamp in the compact format is a delta against it, not an absolute
+// value.
+function expandSyncedProgress(compact, baseMs) {
+  const expanded = {};
+  for (const key of Object.keys(compact || {})) {
+    const tuple = compact[key];
+    if (!Array.isArray(tuple)) continue;
+    expanded[key] = expandHistory(tuple, baseMs);
+  }
+  return expanded;
 }
 
 function buildSyncSnapshotData() {
+  const now = Date.now();
   return {
     source: "vocab-tool-sync",
     schemaVersion: SYNC_SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
-    progress: trimProgressForSync(window.VocabState.getProgress()),
+    // A number, not an ISO string - both a few bytes shorter on the wire
+    // and, more importantly, the base every progress entry's delta-encoded
+    // timestamp is relative to (see compactProgressForSync above).
+    exportedAt: now,
+    progress: compactProgressForSync(window.VocabState.getProgress(), now),
     settings: window.VocabState.getSettings(),
   };
 }
@@ -261,7 +394,8 @@ async function pullSnapshot(opts) {
       return { ok: true, applied: false, exists: true };
     }
     const remote = await decodeSyncPayload(doc.payload);
-    window.VocabState.applySyncedSnapshot(remote.progress, remote.settings);
+    const remoteProgress = expandSyncedProgress(remote.progress, remote.exportedAt);
+    window.VocabState.applySyncedSnapshot(remoteProgress, remote.settings);
     writeLocal(LAST_UPDATE_KEY, doc.updateTime);
     dirty = false;
     return { ok: true, applied: true, exists: true };
@@ -488,7 +622,8 @@ function vocabSyncJoin() {
     writeLocal(BACKUP_BEFORE_JOIN_KEY, JSON.stringify(buildSyncSnapshotData()));
     if (doc.payload) {
       const remote = await decodeSyncPayload(doc.payload);
-      window.VocabState.applySyncedSnapshot(remote.progress, remote.settings);
+      const remoteProgress = expandSyncedProgress(remote.progress, remote.exportedAt);
+      window.VocabState.applySyncedSnapshot(remoteProgress, remote.settings);
     } else {
       window.VocabState.applySyncedSnapshot({}, null);
     }
@@ -537,7 +672,13 @@ function promptRestoreBackupIfAny() {
   }
   const confirmed = confirm("要找回加入同步前的本機學習紀錄嗎？（取消則繼續使用目前的學習紀錄）");
   if (!confirmed) return;
-  window.VocabState.applySyncedSnapshot(backup.progress, backup.settings);
+  // `backup` is a full snapshot object from buildSyncSnapshotData() (see
+  // vocabSyncJoin above), so its `progress` is in the same compact,
+  // delta-encoded-against-its-own-exportedAt shape a pulled remote
+  // snapshot is - it needs the same expand step before it's a normal
+  // progressStore-shaped object again.
+  const restoredProgress = expandSyncedProgress(backup.progress, backup.exportedAt);
+  window.VocabState.applySyncedSnapshot(restoredProgress, backup.settings);
   setSyncStatus("已還原加入同步前的學習紀錄。");
 }
 
