@@ -43,13 +43,66 @@ let settings = Object.assign(
   loadJSON(SETTINGS_KEY, {})
 );
 
-function saveProgress() {
+function persistProgress() {
   saveJSON(PROGRESS_KEY, progressStore);
+}
+
+// Every local mutation to progressStore funnels through this (recordResult,
+// import, reset) - each one is a real change worth syncing, so this is also
+// the one place that tells sync.js "this device now has something newer
+// than the last thing it pushed" (see that file's notifyLocalChange). A
+// no-op when sync isn't set up (window.VocabSync always exists once
+// sync.js loads, but its own isSyncConfigured() gate makes the call itself
+// harmless either way).
+function saveProgress() {
+  persistProgress();
+  if (window.VocabSync) window.VocabSync.notifyLocalChange();
 }
 
 function saveSettings() {
   saveJSON(SETTINGS_KEY, settings);
+  if (window.VocabSync) window.VocabSync.notifyLocalChange();
 }
+
+// Reflects `settings` onto the home-screen controls that mirror it (rate
+// slider, session/review size fields) - shared by init() and by anything
+// that replaces `settings` wholesale from outside a direct user edit
+// (import, an applied sync snapshot) so those two paths don't each keep
+// their own copy of the same four DOM writes.
+function applySettingsToUI() {
+  document.getElementById("rate-select").value = settings.rate;
+  document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
+  document.getElementById("session-size").value = String(settings.sessionSize);
+  document.getElementById("review-size").value = String(settings.reviewSize);
+}
+
+// The read/write surface sync.js (and, in principle, anything else outside
+// this file) uses to get at progressStore/settings - both are plain
+// module-scoped `let` bindings, not properties of `window`, so this is the
+// one seam between the two files rather than each function in sync.js
+// reaching into app.js's internals directly.
+window.VocabState = {
+  getProgress: () => progressStore,
+  getSettings: () => settings,
+  // Replaces progressStore/settings wholesale - used when applying a
+  // snapshot that came from ANOTHER device via sync (or from this
+  // device's own pre-join backup being restored), never for a normal
+  // local edit. Persists locally but deliberately does NOT go through
+  // saveProgress()/saveSettings() above, since re-pushing data that was
+  // just pulled (or restored from a backup of what was already pushed)
+  // isn't a new local change to sync back out.
+  applySyncedSnapshot(remoteProgress, remoteSettings) {
+    progressStore = Logic.migrateProgressStore(remoteProgress || {}, VOCAB_INDEX);
+    persistProgress();
+    if (remoteSettings && typeof remoteSettings === "object") {
+      settings = Object.assign({}, settings, remoteSettings);
+      saveJSON(SETTINGS_KEY, settings);
+      applySettingsToUI();
+    }
+    if (document.getElementById("view-progress").classList.contains("active")) renderProgress();
+    if (document.getElementById("view-reviewlist").classList.contains("active")) renderReviewList();
+  },
+};
 
 // Fetches (creating if needed) the history entry for a vocab item and
 // records one answer into it. Used by BOTH the Vocabulary Test and the
@@ -1142,10 +1195,7 @@ document.getElementById("import-progress-file").addEventListener("change", (e) =
     if (parsed.settings && typeof parsed.settings === "object") {
       settings = Object.assign({}, settings, parsed.settings);
       saveSettings();
-      document.getElementById("rate-select").value = settings.rate;
-      document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
-      document.getElementById("session-size").value = String(settings.sessionSize);
-      document.getElementById("review-size").value = String(settings.reviewSize);
+      applySettingsToUI();
     }
     saveProgress();
     renderProgress();
@@ -1242,16 +1292,19 @@ async function init() {
 
   await loadVocab();
   updateLevelHint();
-
-  document.getElementById("rate-select").value = settings.rate;
-  document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
-  document.getElementById("session-size").value = String(settings.sessionSize);
-  document.getElementById("review-size").value = String(settings.reviewSize);
+  applySettingsToUI();
 
   if (window.speechSynthesis) {
     refreshVoices();
     window.speechSynthesis.onvoiceschanged = refreshVoices;
   }
+
+  // Sync (see sync.js) must not pull-and-apply a remote snapshot until
+  // VOCAB_INDEX exists to migrate it against (see
+  // window.VocabState.applySyncedSnapshot above) - loadVocab() just
+  // finished building it, so this is the first safe moment to let sync.js
+  // start its own activity/visibility-driven loop.
+  if (window.VocabSync) window.VocabSync.onVocabReady();
 }
 
 init();

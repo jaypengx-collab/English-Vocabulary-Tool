@@ -27,6 +27,16 @@ jobs:
         run: |
           VER="${GITHUB_SHA::8}"
           sed -i "s/__BUILD_VERSION__/$VER/g" index.html app.js
+      - name: Stamp cross-device sync proxy URL
+        # VOCAB_SYNC_PROXY_URL is a plain repository *variable* (Settings ->
+        # Secrets and variables -> Actions -> Variables), not a Secret - it
+        # ends up in this public static bundle either way (see sync.js), so
+        # there is nothing to protect by hiding it. Left unset, this
+        # substitutes the empty string, which sync.js's own
+        # isSyncProxyConfigured() correctly reads as "sync not configured" -
+        # same fallback shape as Orbit's own VITE_ORBIT_SYNC_PROXY_URL.
+        run: |
+          sed -i "s|__VOCAB_SYNC_PROXY_URL__|${{ vars.VOCAB_SYNC_PROXY_URL }}|g" sync.js
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

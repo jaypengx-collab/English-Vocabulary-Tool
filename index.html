@@ -239,9 +239,55 @@
       <p class="hint">點擊單字可以顯示／隱藏中文意思，點擊 🔊 可以播放發音。</p>
       <div id="progress-word-table"></div>
 
-      <h2>備份與還原</h2>
-      <p class="hint">學習紀錄目前只存在這台裝置的瀏覽器裡，清除瀏覽器資料或換裝置都會遺失。
-        在正式帳號同步功能做好之前，建議定期匯出備份檔保存起來；需要時再匯入還原。</p>
+      <h2>🔄 跨裝置同步</h2>
+      <p class="hint">把學習紀錄自動同步到你自己的其他裝置（手機、電腦、平板都可以），不用每次手動匯出匯入。第一次先在任一裝置按「建立新同步」，再到其他裝置輸入同一組代碼與密碼「加入同步」即可。</p>
+
+      <div id="sync-setup-box">
+        <div class="row actions">
+          <button class="btn primary" id="sync-create-btn">🔗 建立新同步</button>
+        </div>
+        <details id="sync-join-fold">
+          <summary>已有同步代碼？加入同步</summary>
+          <div class="row">
+            <label for="sync-join-code">代碼</label>
+            <input type="text" id="sync-join-code" placeholder="例如 AB23CD45" maxlength="8" autocapitalize="characters" autocomplete="off" />
+          </div>
+          <div class="row">
+            <label for="sync-join-passcode">密碼</label>
+            <input type="text" id="sync-join-passcode" placeholder="配對密碼" autocomplete="off" />
+          </div>
+          <div class="row actions">
+            <button class="btn primary" id="sync-join-btn">加入同步</button>
+          </div>
+        </details>
+      </div>
+
+      <div id="sync-created-codes" class="hidden sync-created-box">
+        <p class="hint danger-text">請先複製保存這組代碼與密碼——密碼之後不會再完整顯示第二次！</p>
+        <div class="row"><label>代碼</label><strong id="sync-created-code"></strong>
+          <button type="button" class="btn secondary small" id="sync-created-code-copy">複製</button></div>
+        <div class="row"><label>密碼</label><strong id="sync-created-passcode"></strong>
+          <button type="button" class="btn secondary small" id="sync-created-passcode-copy">複製</button></div>
+        <div class="row actions"><button class="btn primary" id="sync-ack-btn">已保存，關閉</button></div>
+      </div>
+
+      <div id="sync-active-box" class="hidden">
+        <div class="row"><label>代碼</label><strong id="sync-active-code"></strong></div>
+        <div class="row">
+          <label>密碼</label>
+          <button type="button" class="btn secondary small" id="sync-passcode-toggle">顯示密碼</button>
+          <strong class="hidden" id="sync-passcode-value"></strong>
+        </div>
+        <div class="row actions">
+          <button class="btn secondary" id="sync-now-btn">🔄 立即同步</button>
+          <button class="btn secondary" id="sync-unlink-btn">解除同步</button>
+          <button class="btn danger" id="sync-delete-btn">整個刪除同步</button>
+        </div>
+      </div>
+      <p class="hint" id="sync-status"></p>
+
+      <h2>備份與還原（手動）</h2>
+      <p class="hint">除了上面的跨裝置同步，也可以隨時手動匯出一份備份檔保存起來，或用來搬到還沒設定同步的裝置。</p>
       <div class="row actions">
         <button class="btn secondary" id="export-progress-btn">📤 匯出學習紀錄</button>
         <button class="btn secondary" id="import-progress-btn">📥 匯入學習紀錄</button>
@@ -269,5 +315,6 @@
 
 <script src="logic.js?v=__BUILD_VERSION__"></script>
 <script src="app.js?v=__BUILD_VERSION__"></script>
+<script src="sync.js?v=__BUILD_VERSION__"></script>
 </body>
 </html>
