@@ -284,6 +284,16 @@ document.getElementById("rate-select").addEventListener("input", (e) => {
   saveSettings();
 });
 
+// Lets the user actually hear a real word at the currently-selected speed
+// before starting a test, using the same local-audio playback path as the
+// test itself (so what they hear here is exactly what they'll get).
+document.getElementById("test-voice-btn").addEventListener("click", () => {
+  if (!VOCAB.length) return;
+  const sample = VOCAB[Math.floor(Math.random() * VOCAB.length)];
+  document.getElementById("test-voice-word").textContent = `範例單字：${sample.word}`;
+  speak(sample.word);
+});
+
 document.getElementById("session-size").addEventListener("change", (e) => {
   settings.sessionSize = Number(e.target.value);
   saveSettings();
