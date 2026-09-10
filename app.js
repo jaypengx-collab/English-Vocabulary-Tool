@@ -1264,6 +1264,25 @@ async function checkForUpdate() {
       statusEl.classList.add("updating");
       statusEl.textContent = "🔄 發現新版本，正在重新整理...";
       sessionStorage.setItem(JUST_UPDATED_KEY, remoteVersion);
+      // A stale service worker cache (see sw.js) is exactly what would
+      // otherwise make this "found a new version" reload land right back
+      // on the OLD app shell - clear it (and nudge the registration to
+      // re-check sw.js itself) before reloading, same reasoning as
+      // Orbit's own force-update flow. Fire-and-forget: the setTimeout
+      // below reloads regardless, so a slow/stuck cache API never leaves
+      // this button just sitting there looking broken.
+      if ("caches" in window) {
+        caches
+          .keys()
+          .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+          .catch(() => {});
+      }
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker
+          .getRegistration()
+          .then((reg) => (reg ? reg.update() : null))
+          .catch(() => {});
+      }
       setTimeout(() => {
         // A brand-new query string on the page itself is a guaranteed
         // cache miss, so this reload always fetches the fresh index.html
@@ -1305,6 +1324,16 @@ async function init() {
   // finished building it, so this is the first safe moment to let sync.js
   // start its own activity/visibility-driven loop.
   if (window.VocabSync) window.VocabSync.onVocabReady();
+
+  // Makes "加到主畫面" installs work and the app usable offline after a
+  // first visit (see sw.js). `updateViaCache: 'none'` stops the browser's
+  // own HTTP cache from ever serving a stale sw.js itself - this file is
+  // the one thing that must always be fetched fresh so a real update is
+  // never stuck behind a cached copy of the worker that would otherwise
+  // keep re-installing the old one.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+  }
 }
 
 init();

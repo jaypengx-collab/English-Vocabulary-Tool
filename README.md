@@ -1,9 +1,11 @@
-# 高中英文參考詞彙表 Level 4–6 單字測驗工具
+# 英單力 YingDanLi
 
 🔗 **線上使用：[jaypengx-collab.github.io/English-Vocabulary-Tool](https://jaypengx-collab.github.io/English-Vocabulary-Tool/)**
 
-一個純前端（無需安裝、無需伺服器）的英文單字測驗與複習工具，內建大學入學考試中心（大考中心）
-「高中英文參考詞彙表」（108 課綱）Level 4、5、6，共 3,060 個單字。
+**英單力**是一個純前端（無需安裝、無需伺服器）的高中英文單字聽寫測驗與複習工具，內建大學
+入學考試中心（大考中心）「高中英文參考詞彙表」（108 課綱）Level 4、5、6，共 3,060 個單字。
+支援「加到主畫面」，加入後跟原生 App 一樣有獨立圖示、全螢幕啟動，也能離線使用已練習過的
+內容（見下方〈加到主畫面與離線使用〉）。
 
 ## 功能
 
@@ -82,8 +84,28 @@ variables → Actions → **Variables** → `VOCAB_SYNC_PROXY_URL`（不是 Secr
   函式；也透過 `window.VocabState` 把 `progressStore`／`settings` 開放給 `sync.js` 讀寫。
 - `sync.js`：跨裝置同步——透過 Orbit 的 Cloudflare Worker 代理讀寫、節流輪詢，見上方
   〈跨裝置同步〉。
+- `sw.js`：Service Worker，讓「加到主畫面」可以離線使用，見下方〈加到主畫面與離線使用〉。
+- `manifest.json`／`icons/`：PWA 設定檔與圖示，同樣見下方。
 - `tests/logic.test.js`：涵蓋作答紀錄、狀態判斷（含連續答對重置）、時間優先度加權、選題
   比例與備援、複習測驗、打錯答案記錄、資料轉換等情境，執行方式：`npm test`（需要 Node.js）。
+
+## 加到主畫面與離線使用
+
+手機瀏覽器（iOS Safari「加入主畫面」、Android Chrome「安裝應用程式」／「加到主畫面」）都
+可以把英單力加成一個獨立圖示，開啟後跟原生 App 一樣全螢幕顯示、沒有網址列。桌機瀏覽器
+（Chrome／Edge）網址列右側也會出現安裝圖示，效果相同。
+
+背後是標準的 PWA 三件套：`manifest.json` 提供名稱、圖示與啟動設定；`icons/` 底下的
+`icon-192.png`／`icon-512.png`（給 Android／桌機）與 `apple-touch-icon.png`（給
+iOS，180×180、不帶圓角——iOS 會自己套用遮罩，預先切好圓角反而會跟系統的遮罩疊在一起
+變形）；`sw.js` 則是 Service Worker，讓已經載入過的頁面殼（`index.html`／`style.css`／
+`app.js`／`logic.js`／`sync.js`／`data/vocab.json`）跟已經聽過發音的單字音檔都能離線
+使用——**不會**把全部 3,060 個單字的音檔都預先下載下來（那樣單次安裝就要抓好幾十 MB），
+只有實際播放過的單字音檔才會被快取，之後不管有沒有網路都能重播。
+
+`sw.js` 對 HTML 本身一律「先試網路」，只有網路真的失敗或逾時（4 秒）才退回快取版本，所以
+正常情況下不會卡在舊版本；「學習進度」頁面最下面的「🔄 檢查更新」按鈕偵測到新版本時，也
+會一併清掉 Service Worker 的快取再重新整理，避免更新後又載到快取住的舊檔案。
 
 ## 單字發音
 
