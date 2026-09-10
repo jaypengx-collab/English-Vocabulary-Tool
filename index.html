@@ -60,17 +60,18 @@
       <div id="test-mode-settings">
         <h2>開始練習</h2>
         <div class="row">
-          <label for="session-size">單字測驗題數</label>
-          <input type="number" id="session-size" min="0" max="3060" step="1" value="80" />
+          <label for="test-minutes">測驗時間</label>
+          <input type="range" id="test-minutes" min="2" max="30" step="1" value="10" />
+          <span id="test-minutes-value">10 分鐘</span>
         </div>
-        <div class="row" id="session-size-presets">
-          <button type="button" class="btn secondary small" data-size="10">10</button>
-          <button type="button" class="btn secondary small" data-size="20">20</button>
-          <button type="button" class="btn secondary small" data-size="50">50</button>
-          <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
-          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        <div class="row" id="test-minutes-presets">
+          <button type="button" class="btn secondary small" data-minutes="5">5</button>
+          <button type="button" class="btn secondary small" data-minutes="10">10（建議）</button>
+          <button type="button" class="btn secondary small" data-minutes="15">15</button>
+          <button type="button" class="btn secondary small" data-minutes="20">20</button>
+          <button type="button" class="btn secondary small" data-minutes="30">30</button>
         </div>
-        <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 答錯待複習、10% 學習中的單字（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。已熟記（連續答對 2 次）的單字不會再出現，把機會留給還沒學會的字。</p>
+        <p class="hint">拖曳滑桿或點選上方快速選項，決定要練習多久；時間到會自動結束並顯示成績，實際題數依你的作答速度而定，不用自己抓題數。單字測驗組成為 80% 新字、10% 答錯待複習、10% 學習中的單字（用來檢驗記憶是否穩固）；若該範圍字數不足，系統會自動用其他類別補足。已熟記（連續答對 2 次）的單字不會再出現，把機會留給還沒學會的字。</p>
         <div class="row actions">
           <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
         </div>
@@ -79,16 +80,18 @@
       <div id="review-mode-settings" class="hidden">
         <h2>開始練習</h2>
         <div class="row">
-          <label for="review-size">複習測驗題數</label>
-          <input type="number" id="review-size" min="0" max="3060" step="1" value="20" />
+          <label for="review-minutes">複習時間</label>
+          <input type="range" id="review-minutes" min="2" max="30" step="1" value="5" />
+          <span id="review-minutes-value">5 分鐘</span>
         </div>
-        <div class="row" id="review-size-presets">
-          <button type="button" class="btn secondary small" data-size="10">10</button>
-          <button type="button" class="btn secondary small" data-size="20">20（建議）</button>
-          <button type="button" class="btn secondary small" data-size="50">50</button>
-          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        <div class="row" id="review-minutes-presets">
+          <button type="button" class="btn secondary small" data-minutes="5">5（建議）</button>
+          <button type="button" class="btn secondary small" data-minutes="10">10</button>
+          <button type="button" class="btn secondary small" data-minutes="15">15</button>
+          <button type="button" class="btn secondary small" data-minutes="20">20</button>
+          <button type="button" class="btn secondary small" data-minutes="30">30</button>
         </div>
-        <p class="hint">複習測驗組成為 70% 答錯待複習、30% 學習中的單字，優先挑選比你平均反應時間慢、比較久沒複習的單字；已熟記的單字不會出現。輸入 0 表示複習該範圍內全部需要複習的單字。</p>
+        <p class="hint">複習測驗組成為 70% 答錯待複習、30% 學習中的單字，優先挑選比你平均反應時間慢、比較久沒複習的單字；已熟記的單字不會出現。時間到會自動結束並顯示成績。</p>
         <div class="row actions">
           <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
         </div>
@@ -101,7 +104,7 @@
     <div class="card center-card">
       <div class="progress-row">
         <div class="progress-bar"><div class="progress-fill" id="test-progress-fill"></div></div>
-        <span id="test-progress-text">0 / 0</span>
+        <span id="test-progress-text">00:00</span>
       </div>
       <div class="level-badge" id="test-level-badge">Level 4</div>
 
@@ -147,7 +150,7 @@
       <div id="rev-body">
         <div class="progress-row">
           <div class="progress-bar"><div class="progress-fill" id="rev-progress-fill"></div></div>
-          <span id="rev-progress-text">0 / 0</span>
+          <span id="rev-progress-text">00:00</span>
         </div>
         <div class="level-badge" id="rev-level-badge">Level 4</div>
 

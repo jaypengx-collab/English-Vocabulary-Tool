@@ -39,7 +39,7 @@ function saveJSON(key, value) {
 // a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], rate: 0.9, sessionSize: 80, reviewSize: 20 },
+  { levels: [4, 5, 6], rate: 0.9, testMinutes: 10, reviewMinutes: 5 },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -72,8 +72,10 @@ function saveSettings() {
 function applySettingsToUI() {
   document.getElementById("rate-select").value = settings.rate;
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
-  document.getElementById("session-size").value = String(settings.sessionSize);
-  document.getElementById("review-size").value = String(settings.reviewSize);
+  document.getElementById("test-minutes").value = String(settings.testMinutes);
+  document.getElementById("test-minutes-value").textContent = `${settings.testMinutes} 分鐘`;
+  document.getElementById("review-minutes").value = String(settings.reviewMinutes);
+  document.getElementById("review-minutes-value").textContent = `${settings.reviewMinutes} 分鐘`;
 }
 
 // The read/write surface sync.js (and, in principle, anything else outside
@@ -104,6 +106,20 @@ window.VocabState = {
   },
 };
 
+// Every 20th answer within a single running session (test or review, they
+// share this counter since they share recordResult) forces an immediate
+// sync round trip instead of waiting for the ordinary activity throttle
+// (see sync.js's ACTIVITY_SYNC_THROTTLE_MS) - a long round (a 30-minute
+// timed test can easily run past a couple hundred questions) otherwise
+// only actually syncs once every 5 seconds' worth of throttled activity
+// checks, which is fine for keeping the SERVER copy warm but leaves a
+// bigger and bigger chunk of a long round's progress sitting unpushed if
+// the tab crashes or the device loses power mid-round. This is a
+// deliberately simple period, not tied to elapsed time or word count
+// precision - just "don't let more than ~20 answers pile up unpushed."
+const FORCE_SYNC_EVERY_N_ANSWERS = 20;
+let answersSinceForcedSync = 0;
+
 // Fetches (creating if needed) the history entry for a vocab item and
 // records one answer into it. Used by BOTH the Vocabulary Test and the
 // Review Test, so the two modes share one system rather than drifting
@@ -126,6 +142,11 @@ function recordResult(item, correct, responseMs, answer) {
     length: item.word.length,
   });
   saveProgress();
+  answersSinceForcedSync += 1;
+  if (answersSinceForcedSync >= FORCE_SYNC_EVERY_N_ANSWERS) {
+    answersSinceForcedSync = 0;
+    if (window.VocabSync) window.VocabSync.syncNow();
+  }
   return { history: history, priorAvg: priorAvg };
 }
 
@@ -398,6 +419,7 @@ document.getElementById("tabs").addEventListener("click", (e) => {
     if (!confirmed) return;
     vocabTest.inProgress = false;
     reviewTest.inProgress = false;
+    stopRoundTimer();
   }
   showView(btn.dataset.view);
 });
@@ -448,41 +470,82 @@ document.getElementById("test-voice-btn").addEventListener("click", () => {
   speak(sample.word);
 });
 
-function setSessionSize(size) {
-  const clamped = Math.max(0, Math.floor(size) || 0);
-  settings.sessionSize = clamped;
-  document.getElementById("session-size").value = String(clamped);
+function setTestMinutes(minutes) {
+  const clamped = Math.min(30, Math.max(2, Math.round(minutes) || 2));
+  settings.testMinutes = clamped;
+  document.getElementById("test-minutes").value = String(clamped);
+  document.getElementById("test-minutes-value").textContent = `${clamped} 分鐘`;
   saveSettings();
 }
 
-document.getElementById("session-size").addEventListener("change", (e) => {
-  setSessionSize(Number(e.target.value));
+document.getElementById("test-minutes").addEventListener("input", (e) => {
+  setTestMinutes(Number(e.target.value));
 });
 
-document.getElementById("session-size-presets").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-size]");
+document.getElementById("test-minutes-presets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-minutes]");
   if (!btn) return;
-  setSessionSize(Number(btn.dataset.size));
+  setTestMinutes(Number(btn.dataset.minutes));
 });
 
-function setReviewSize(size) {
-  const clamped = Math.max(0, Math.floor(size) || 0);
-  settings.reviewSize = clamped;
-  document.getElementById("review-size").value = String(clamped);
+function setReviewMinutes(minutes) {
+  const clamped = Math.min(30, Math.max(2, Math.round(minutes) || 2));
+  settings.reviewMinutes = clamped;
+  document.getElementById("review-minutes").value = String(clamped);
+  document.getElementById("review-minutes-value").textContent = `${clamped} 分鐘`;
   saveSettings();
 }
 
-document.getElementById("review-size").addEventListener("change", (e) => {
-  setReviewSize(Number(e.target.value));
+document.getElementById("review-minutes").addEventListener("input", (e) => {
+  setReviewMinutes(Number(e.target.value));
 });
 
-document.getElementById("review-size-presets").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-size]");
+document.getElementById("review-minutes-presets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-minutes]");
   if (!btn) return;
-  setReviewSize(Number(btn.dataset.size));
+  setReviewMinutes(Number(btn.dataset.minutes));
 });
 
 /* ---------- Shared quiz mechanics (used by both Vocabulary Test and Review Test) ---------- */
+
+// mm:ss, capped at 0 rather than going negative - used for the time-boxed
+// round's remaining-time display (see startRoundTimer below).
+function formatMMSS(ms) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+// A round is time-boxed (see settings.testMinutes/reviewMinutes), not
+// question-counted, since we already record every answer's actual response
+// time - there's no need to make the user guess how many questions fit in
+// the time they have. The question LIST built at round start is still
+// sized generously (the full available pool - see start-test-btn/
+// start-review-btn below) so it never runs out before the clock does; the
+// clock, not the list length, is what ends the round.
+//
+// Ticks the visible countdown every second while a round is active - not
+// just when a new question is shown - so the display doesn't sit stale
+// while the user is still thinking about/typing the current word. Started
+// fresh (stopRoundTimer, then restarted) each time a round begins, stopped
+// by finishTest/finishReview when a round ends normally, and by the tabs
+// click handler above when a round is abandoned mid-way (see
+// isLeavingActiveRound) - that path doesn't call finishTest/finishReview
+// (no summary screen to show for an abandoned round), so it stops the
+// timer directly instead.
+let roundTimerHandle = null;
+function startRoundTimer(tickFn) {
+  stopRoundTimer();
+  tickFn();
+  roundTimerHandle = setInterval(tickFn, 1000);
+}
+function stopRoundTimer() {
+  if (roundTimerHandle) {
+    clearInterval(roundTimerHandle);
+    roundTimerHandle = null;
+  }
+}
 
 // A self-relative note about this attempt's speed vs THIS word's own past
 // average - never a fixed threshold, never a function of word length.
@@ -530,7 +593,27 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
 
 /* ---------- Vocabulary Test mode ---------- */
 
-const vocabTest = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0, inProgress: false };
+const vocabTest = {
+  list: [],
+  index: 0,
+  answeredCount: 0,
+  correctCount: 0,
+  missed: [],
+  answered: false,
+  wordShownAt: 0,
+  startedAt: 0,
+  timeLimitMs: 0,
+  inProgress: false,
+};
+
+function testTimeUp() {
+  return Date.now() - vocabTest.startedAt >= vocabTest.timeLimitMs;
+}
+function updateTestTimeDisplay() {
+  const elapsedMs = Date.now() - vocabTest.startedAt;
+  document.getElementById("test-progress-text").textContent = formatMMSS(vocabTest.timeLimitMs - elapsedMs);
+  document.getElementById("test-progress-fill").style.width = `${Math.min(100, (elapsedMs / vocabTest.timeLimitMs) * 100)}%`;
+}
 
 // The Vocabulary Test view has no top-level tab of its own - it's only
 // ever entered from this button, and navigating away mid-round (e.g. to
@@ -547,23 +630,30 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
-  const size = settings.sessionSize && settings.sessionSize > 0 ? settings.sessionSize : pool.length;
-  vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: size });
+  // The round is time-boxed (settings.testMinutes), not question-counted -
+  // request the WHOLE available pool up front so the list never runs out
+  // before the clock does (selectTestQuestions can't return more than
+  // pool.length distinct words anyway, so this is never wasteful, just
+  // generous). testTimeUp()/advanceTest() below are what actually end the
+  // round.
+  vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: pool.length });
   vocabTest.index = 0;
+  vocabTest.answeredCount = 0;
   vocabTest.correctCount = 0;
   vocabTest.missed = [];
   vocabTest.inProgress = true;
+  vocabTest.startedAt = Date.now();
+  vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
   document.getElementById("test-summary").classList.add("hidden");
   document.getElementById("test-form").classList.remove("hidden");
   showView("test");
+  startRoundTimer(updateTestTimeDisplay);
   showTestWord();
 });
 
 function showTestWord() {
-  const total = vocabTest.list.length;
   const item = vocabTest.list[vocabTest.index];
-  document.getElementById("test-progress-text").textContent = `${vocabTest.index + 1} / ${total}`;
-  document.getElementById("test-progress-fill").style.width = `${(vocabTest.index / total) * 100}%`;
+  updateTestTimeDisplay();
   document.getElementById("test-level-badge").textContent = `Level ${item.level}`;
 
   vocabTest.answered = false;
@@ -600,6 +690,7 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
 
   const { priorAvg } = recordResult(item, correct, elapsed, guess);
   vocabTest.answered = true;
+  vocabTest.answeredCount += 1;
   input.disabled = true;
   if (correct) vocabTest.correctCount += 1;
   else vocabTest.missed.push(item);
@@ -607,7 +698,7 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
   const note = correct ? speedNote(priorAvg, elapsed) : null;
   renderAnswerFeedback(document.getElementById("test-feedback"), item, correct, guess, note);
 
-  const isLast = vocabTest.index === vocabTest.list.length - 1;
+  const isLast = testTimeUp() || vocabTest.index >= vocabTest.list.length - 1;
   const nextBtn = document.getElementById("test-next-btn");
   nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
   nextBtn.classList.remove("hidden");
@@ -616,7 +707,7 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
 document.getElementById("test-next-btn").addEventListener("click", advanceTest);
 
 function advanceTest() {
-  if (vocabTest.index < vocabTest.list.length - 1) {
+  if (!testTimeUp() && vocabTest.index < vocabTest.list.length - 1) {
     vocabTest.index += 1;
     showTestWord();
   } else {
@@ -626,14 +717,21 @@ function advanceTest() {
 
 function finishTest() {
   vocabTest.inProgress = false;
+  stopRoundTimer();
   document.getElementById("test-progress-fill").style.width = "100%";
   document.getElementById("test-form").classList.add("hidden");
   document.getElementById("test-feedback").classList.add("hidden");
   document.getElementById("test-next-btn").classList.add("hidden");
 
-  const total = vocabTest.list.length;
-  document.getElementById("test-summary-score").textContent =
-    `答對 ${vocabTest.correctCount} / ${total} 題（${Math.round((vocabTest.correctCount / total) * 100)}%）`;
+  // vocabTest.list was built generously (the whole available pool - see
+  // start-test-btn) since the round is time-boxed, not question-counted;
+  // only the prefix actually reached before time ran out was really part
+  // of this round, hence the slice rather than the full list.
+  const total = vocabTest.answeredCount;
+  const presented = vocabTest.list.slice(0, total);
+  document.getElementById("test-summary-score").textContent = total
+    ? `答對 ${vocabTest.correctCount} / ${total} 題（${Math.round((vocabTest.correctCount / total) * 100)}%）`
+    : "這回合時間到之前還沒作答任何一題。";
 
   const missedDiv = document.getElementById("test-summary-missed");
   missedDiv.innerHTML = "";
@@ -645,21 +743,28 @@ function finishTest() {
     const holder = document.createElement("div");
     missedDiv.appendChild(holder);
     renderWordChipList(holder, vocabTest.missed);
-  } else {
+  } else if (total) {
     missedDiv.innerHTML = `<p class="hint">全部答對，太厲害了！🎉</p>`;
   }
 
   const allDiv = document.getElementById("test-summary-all");
   allDiv.innerHTML = "";
-  const allP = document.createElement("p");
-  allP.className = "hint";
-  allP.textContent = "本回合全部單字（點擊查看中文意思）：";
-  allDiv.appendChild(allP);
-  const allHolder = document.createElement("div");
-  allDiv.appendChild(allHolder);
-  renderWordChipList(allHolder, vocabTest.list);
+  if (total) {
+    const allP = document.createElement("p");
+    allP.className = "hint";
+    allP.textContent = "本回合全部單字（點擊查看中文意思）：";
+    allDiv.appendChild(allP);
+    const allHolder = document.createElement("div");
+    allDiv.appendChild(allHolder);
+    renderWordChipList(allHolder, presented);
+  }
 
   document.getElementById("test-summary").classList.remove("hidden");
+  // "每次完成測驗就同步" - see sync.js's syncNow, same immediate trigger
+  // the every-20-answers safety net in recordResult uses, just guaranteed
+  // at the natural end of every round regardless of how many questions it
+  // actually contained.
+  if (window.VocabSync) window.VocabSync.syncNow();
 }
 
 document.getElementById("test-again-btn").addEventListener("click", () => {
@@ -669,7 +774,25 @@ document.getElementById("test-home-btn").addEventListener("click", () => showVie
 
 /* ---------- Review Test mode (auto-quizzes the wrong-word list) ---------- */
 
-const reviewTest = { list: [], index: 0, records: [], answered: false, wordShownAt: 0, inProgress: false };
+const reviewTest = {
+  list: [],
+  index: 0,
+  records: [],
+  answered: false,
+  wordShownAt: 0,
+  startedAt: 0,
+  timeLimitMs: 0,
+  inProgress: false,
+};
+
+function reviewTimeUp() {
+  return Date.now() - reviewTest.startedAt >= reviewTest.timeLimitMs;
+}
+function updateReviewTimeDisplay() {
+  const elapsedMs = Date.now() - reviewTest.startedAt;
+  document.getElementById("rev-progress-text").textContent = formatMMSS(reviewTest.timeLimitMs - elapsedMs);
+  document.getElementById("rev-progress-fill").style.width = `${Math.min(100, (elapsedMs / reviewTest.timeLimitMs) * 100)}%`;
+}
 
 // Same "no dedicated tab, resume on return" rule as the Vocabulary Test -
 // see the comment on start-test-btn above.
@@ -681,7 +804,11 @@ document.getElementById("start-review-btn").addEventListener("click", () => {
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
-  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: settings.reviewSize });
+  // size: 0 means "all available" (see buildReviewTestList) - same reason
+  // as the Vocabulary Test's pool.length above: the round is time-boxed
+  // (settings.reviewMinutes), not question-counted, so request everything
+  // there is to review and let the clock decide how much of it gets used.
+  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: 0 });
   reviewTest.index = 0;
   reviewTest.records = [];
 
@@ -697,19 +824,20 @@ document.getElementById("start-review-btn").addEventListener("click", () => {
     return;
   }
   reviewTest.inProgress = true;
+  reviewTest.startedAt = Date.now();
+  reviewTest.timeLimitMs = settings.reviewMinutes * 60 * 1000;
   empty.classList.add("hidden");
   body.classList.remove("hidden");
   document.getElementById("rev-form").classList.remove("hidden");
+  startRoundTimer(updateReviewTimeDisplay);
   showReviewWord();
 });
 
 document.getElementById("rev-empty-home-btn").addEventListener("click", () => showView("home"));
 
 function showReviewWord() {
-  const total = reviewTest.list.length;
   const item = reviewTest.list[reviewTest.index];
-  document.getElementById("rev-progress-text").textContent = `${reviewTest.index + 1} / ${total}`;
-  document.getElementById("rev-progress-fill").style.width = `${(reviewTest.index / total) * 100}%`;
+  updateReviewTimeDisplay();
   document.getElementById("rev-level-badge").textContent = `Level ${item.level}`;
 
   reviewTest.answered = false;
@@ -752,7 +880,7 @@ document.getElementById("rev-form").addEventListener("submit", (e) => {
   const note = correct ? speedNote(priorAvg, elapsed) : null;
   renderAnswerFeedback(document.getElementById("rev-feedback"), item, correct, guess, note);
 
-  const isLast = reviewTest.index === reviewTest.list.length - 1;
+  const isLast = reviewTimeUp() || reviewTest.index >= reviewTest.list.length - 1;
   const nextBtn = document.getElementById("rev-next-btn");
   nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
   nextBtn.classList.remove("hidden");
@@ -761,7 +889,7 @@ document.getElementById("rev-form").addEventListener("submit", (e) => {
 document.getElementById("rev-next-btn").addEventListener("click", advanceReview);
 
 function advanceReview() {
-  if (reviewTest.index < reviewTest.list.length - 1) {
+  if (!reviewTimeUp() && reviewTest.index < reviewTest.list.length - 1) {
     reviewTest.index += 1;
     showReviewWord();
   } else {
@@ -771,6 +899,7 @@ function advanceReview() {
 
 function finishReview() {
   reviewTest.inProgress = false;
+  stopRoundTimer();
   document.getElementById("rev-progress-fill").style.width = "100%";
   document.getElementById("rev-body").classList.add("hidden");
 
@@ -811,9 +940,15 @@ function finishReview() {
   wordsDiv.appendChild(p);
   const holder = document.createElement("div");
   wordsDiv.appendChild(holder);
-  renderWordChipList(holder, reviewTest.list);
+  // reviewTest.list was built generously (size: 0 = all available - see
+  // start-review-btn) since the round is time-boxed, not question-counted;
+  // only the prefix actually reached (one item per recorded answer) was
+  // really part of this round.
+  renderWordChipList(holder, reviewTest.list.slice(0, total));
 
   document.getElementById("rev-summary").classList.remove("hidden");
+  // Same immediate-sync-on-finish as the Vocabulary Test - see finishTest.
+  if (window.VocabSync) window.VocabSync.syncNow();
 }
 
 document.getElementById("rev-again-btn").addEventListener("click", () => {
@@ -1264,11 +1399,14 @@ document.getElementById("reset-progress-btn").addEventListener("click", () => {
     progressStore = {};
     saveProgress();
     renderProgress();
-    // Asks separately (only if sync is actually configured) whether this
-    // clear should also propagate to the synced copy - see sync.js's
-    // confirmPushResetAfterClear for why a reset needs its own explicit
-    // confirmation rather than just riding the ordinary guarded push.
-    if (window.VocabSync) window.VocabSync.confirmPushResetAfterClear();
+    // Clearing also unlinks sync (if configured) - see sync.js's
+    // unlinkAfterReset for why: staying paired would just have the very
+    // next automatic sync tick pull the pre-reset data back down again
+    // (this device's now-zero progress correctly looks "behind" the
+    // server), silently undoing the reset. Unlinking is unambiguous: this
+    // device simply isn't part of any sync anymore until rejoined, and
+    // the server/other devices are untouched either way.
+    if (window.VocabSync) window.VocabSync.unlinkAfterReset();
   }
 });
 

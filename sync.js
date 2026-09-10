@@ -400,50 +400,44 @@ function setSyncStatus(text, isError) {
   el.classList.toggle("danger-text", !!isError);
 }
 
-// `opts.force` skips the "never push behind the server" guard below -
-// used ONLY for a deliberate, user-confirmed downgrade (see
-// confirmPushResetAfterClear, the sole caller that passes it). Every other
-// caller (syncTick, the manual 立即同步 button) leaves it unforced, because
-// an AUTOMATIC or routine push must never be the thing that decides "my
-// copy wins" - that decision is exactly what caused real data loss once
-// already (see this file's git history/README).
-async function pushSnapshot(opts) {
-  const force = !!(opts && opts.force);
+// Never pushes blindly - always checks the server's own totalAttempts
+// first (one extra round trip, a GET before the PATCH) and refuses to
+// overwrite it if the server is strictly ahead, applying the server's data
+// locally instead (see computeTotalAttempts's own comment on why that
+// count, not a timestamp, is the actual source of truth here). That round
+// trip is the real cost of not silently overwriting someone else's
+// progress, which is exactly what a plain "just PATCH it" push already
+// did once (see this file's git history/README). There is deliberately no
+// way to bypass this from outside the file - the one case that used to
+// need one (force-pushing a deliberate reset over the server) is handled
+// by unlinking instead (see unlinkAfterReset), not by overwriting.
+async function pushSnapshot() {
   const code = getSyncCode();
   const passcode = getSyncPasscode();
   if (!isSyncProxyConfigured() || !code || !passcode) return { ok: false, error: "尚未設定同步。" };
   try {
     const localSnapshot = buildSyncSnapshotData();
-    if (!force) {
-      // One extra round trip (a GET before the PATCH) to find out whether
-      // the server has strictly more accumulated practice than this
-      // device does - see computeTotalAttempts's own comment on why that
-      // count, not a timestamp, is the actual source of truth here. That
-      // round trip is the real cost of not silently overwriting someone
-      // else's progress, which is exactly what a plain "just PATCH it"
-      // push already did once.
-      const doc = await fetchSyncDoc(code, passcode);
-      if (!doc.ok) throw new Error(doc.error);
-      if (doc.exists && doc.payload) {
-        const remote = await decodeSyncPayload(doc.payload);
-        const remoteTotal = typeof remote.totalAttempts === "number" ? remote.totalAttempts : 0;
-        if (remoteTotal > localSnapshot.totalAttempts) {
-          // The server is ahead of us - applying it locally is the same
-          // outcome an ordinary pull would produce, just reached from the
-          // push path instead of leaving this device's fewer-attempts
-          // copy to silently clobber the server's.
-          const remoteProgress = expandSyncedProgress(remote.progress, remote.exportedAt);
-          window.VocabState.applySyncedSnapshot(remoteProgress, remote.settings);
-          writeLocal(LAST_UPDATE_KEY, doc.updateTime);
-          dirty = false;
-          return {
-            ok: true,
-            pushed: false,
-            pulledInstead: true,
-            remoteTotalAttempts: remoteTotal,
-            localTotalAttempts: localSnapshot.totalAttempts,
-          };
-        }
+    const doc = await fetchSyncDoc(code, passcode);
+    if (!doc.ok) throw new Error(doc.error);
+    if (doc.exists && doc.payload) {
+      const remote = await decodeSyncPayload(doc.payload);
+      const remoteTotal = typeof remote.totalAttempts === "number" ? remote.totalAttempts : 0;
+      if (remoteTotal > localSnapshot.totalAttempts) {
+        // The server is ahead of us - applying it locally is the same
+        // outcome an ordinary pull would produce, just reached from the
+        // push path instead of leaving this device's fewer-attempts copy
+        // to silently clobber the server's.
+        const remoteProgress = expandSyncedProgress(remote.progress, remote.exportedAt);
+        window.VocabState.applySyncedSnapshot(remoteProgress, remote.settings);
+        writeLocal(LAST_UPDATE_KEY, doc.updateTime);
+        dirty = false;
+        return {
+          ok: true,
+          pushed: false,
+          pulledInstead: true,
+          remoteTotalAttempts: remoteTotal,
+          localTotalAttempts: localSnapshot.totalAttempts,
+        };
       }
     }
     const payload = await encodeSyncPayload(localSnapshot);
@@ -808,17 +802,43 @@ function promptRestoreBackupIfAny() {
   setSyncStatus("已還原加入同步前的學習紀錄。");
 }
 
+// Shared by vocabSyncUnlink (its own confirm, own status message, offers
+// the pre-join backup back) and unlinkAfterReset (no confirm of its own -
+// resetting already asked once; no backup offer - offering to restore the
+// very data that was just deliberately cleared would defeat the point).
+function performUnlink(statusMessage) {
+  clearSyncPairing();
+  syncLoopStarted = false;
+  dirty = false;
+  renderSyncPanel();
+  setSyncStatus(statusMessage);
+}
+
 function vocabSyncUnlink() {
   const confirmed = confirm(
     "解除同步後這台裝置會變回只在本機儲存進度，之後可用同一組代碼重新加入。其他裝置不受影響。要繼續嗎？"
   );
   if (!confirmed) return;
-  clearSyncPairing();
-  syncLoopStarted = false;
-  dirty = false;
-  renderSyncPanel();
-  setSyncStatus("已解除同步（本機學習紀錄不受影響）。");
+  performUnlink("已解除同步（本機學習紀錄不受影響）。");
   promptRestoreBackupIfAny();
+}
+
+// Called by app.js's reset-progress-btn handler right after it clears
+// progressStore locally, ONLY when sync is configured. "清除全部學習紀錄"
+// unlinking too - rather than the earlier design (offer to also push the
+// clear to the server) - is what a user actually means by "clear my data":
+// with the totalAttempts guard now protecting every push (see
+// pushSnapshot/computeTotalAttempts), a reset that stayed paired would
+// just have its local totalAttempts (0) treated as "behind" the very next
+// automatic tick and get silently pulled back from the server - the reset
+// undoing itself with no further action from the user. Unlinking avoids
+// that confusing outcome entirely: this device simply stops being part of
+// any sync until the user deliberately rejoins (or creates a new one),
+// same as clicking "解除同步" would, and the server/other devices are
+// untouched either way.
+function unlinkAfterReset() {
+  if (!isSyncConfigured()) return;
+  performUnlink("已清除學習紀錄並解除同步（其他裝置與伺服器上的紀錄不受影響）。");
 }
 
 function vocabSyncDeleteForEveryone() {
@@ -885,41 +905,16 @@ function initSyncUI() {
   renderSyncPanel();
 }
 
-// Called by app.js's reset-progress-btn handler right after it clears
-// progressStore locally, ONLY when sync is configured. A reset drops this
-// device's totalAttempts to 0 - left to the ordinary guarded push path
-// (pushSnapshot without force), the very next automatic tick would see
-// the server's real count as "ahead" and pull the pre-reset data right
-// back down, quietly undoing the reset. That's the correct behavior for
-// an ACCIDENTAL dip (the bug this whole guard exists to prevent), but a
-// deliberate "清除全部學習紀錄" click needs an explicit way to actually
-// win - hence force:true here, gated behind its own confirmation, since
-// pushing a reset can wipe every other device synced to this same code.
-function confirmPushResetAfterClear() {
-  if (!isSyncConfigured()) return;
-  if (!navigator.onLine) {
-    setSyncStatus("目前沒有網路連線，無法同步這次清除（同步的資料不受影響）。", true);
-    return;
-  }
-  const confirmed = confirm(
-    "要把同步的學習紀錄也一起清除嗎？\n\n" +
-      "這會清掉其他已加入同步的裝置看到的學習紀錄（下次它們同步時），此動作無法復原。\n\n" +
-      "選「取消」的話，只有這台裝置被清除——同步的資料不受影響，下次自動同步時，這台裝置的紀錄還會被補回來。"
-  );
-  if (!confirmed) {
-    setSyncStatus("已清除本機學習紀錄；同步的資料不受影響。");
-    return;
-  }
-  setSyncStatus("正在清除同步的學習紀錄…");
-  pushSnapshot({ force: true }).then((result) => {
-    setSyncStatus(result.ok ? "已清除本機與同步的學習紀錄。" : result.error, !result.ok);
-  });
-}
-
 initSyncUI();
 
 window.VocabSync = {
   notifyLocalChange: notifyLocalChange,
   onVocabReady: onVocabReady,
-  confirmPushResetAfterClear: confirmPushResetAfterClear,
+  unlinkAfterReset: unlinkAfterReset,
+  // Exposed so app.js can force an immediate sync round trip (bypassing
+  // the ordinary activity throttle) right when a round finishes, and
+  // every FORCE_SYNC_EVERY_N_ANSWERS answers during a long one - see
+  // app.js's finishTest/finishReview/recordResult. Just syncOnAppActive
+  // under a name that reads correctly from a caller outside this file.
+  syncNow: syncOnAppActive,
 };
