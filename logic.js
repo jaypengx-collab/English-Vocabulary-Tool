@@ -546,6 +546,15 @@
       recentResponseMs: h ? h.recentResponseMs : null,
       state: info.state,
       score: info.score,
+      // Score sub-components, exposed so the UI can show WHY a score is
+      // what it is instead of just the opaque final number - accuracy
+      // (correctness so far), confidence (how much history backs that up -
+      // this is what keeps a 1-2-attempt word capped low regardless of
+      // speed), and timingScore (this word's own consistency/speed/
+      // improvement signal, null until there's enough timed data).
+      accuracy: info.accuracy,
+      confidence: info.confidence,
+      timingScore: info.timingScore,
       inWrongList: h ? !!h.inWrongList : false,
     };
   }

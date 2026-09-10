@@ -779,6 +779,9 @@ function renderWordTable() {
         <td class="word-cell">${detail.word}${detail.inWrongList ? ' <span class="wrong-flag" title="在答錯清單中">⚠️</span>' : ""}</td>
         <td>${detail.level}</td>
         <td>${detail.correct} / ${detail.incorrect}</td>
+        <td title="正確率（含平滑修正，避免 1 次全對就算 100%）">${formatPercent(detail.accuracy)}</td>
+        <td title="信心度：練習次數越多才會越高，跟速度無關 - 這通常才是分數偏低的主因">${formatPercent(detail.confidence)}（${detail.attempts} 次）</td>
+        <td title="時間分數：跟你這個字「自己過去的平均」比較，不是固定標準，練習次數不足時顯示 —">${detail.timingScore == null ? "—" : formatPercent(detail.timingScore)}</td>
         <td>${formatMs(detail.avgCorrectResponseMs)}</td>
         <td>${formatPercent(detail.score)}</td>
         <td><span class="state-badge ${detail.state}">${STATE_LABELS[detail.state]}</span></td>
@@ -790,9 +793,10 @@ function renderWordTable() {
     : "";
 
   container.innerHTML = `
+    <p class="hint">記憶分數 = 正確率 × 信心度，再依時間分數微調（最多影響 35%）。信心度需要多練習幾次才會提高，這通常才是分數偏低的主因，不是因為你打字慢；時間分數只跟你這個字自己過去的平均速度比較。滑鼠移到欄位標題可看說明。</p>
     <div class="word-table-wrap">
       <table class="word-table">
-        <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th>平均反應時間</th><th>記憶分數</th><th>狀態</th></tr></thead>
+        <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="正確率">正確率</th><th title="信心度（練習次數）">信心度</th><th title="時間分數">時間分數</th><th>平均反應時間</th><th>記憶分數</th><th>狀態</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>

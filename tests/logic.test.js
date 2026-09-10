@@ -488,4 +488,9 @@ test("computeWordDetail exposes the per-word fields needed for the Progress word
   assert.equal(detail.correct, 1);
   assert.equal(detail.avgCorrectResponseMs, 1500);
   assert.ok(["new", "learning", "review", "memorized"].includes(detail.state));
+  // Sub-scores so the UI can explain a low score (e.g. "confidence is only
+  // 17% because you've only answered this once" - not a speed penalty).
+  assert.ok(detail.accuracy > 0 && detail.accuracy <= 1);
+  assert.ok(detail.confidence > 0 && detail.confidence <= 1);
+  assert.equal(detail.timingScore, null, "one attempt is not enough timed data for a timing signal yet");
 });
