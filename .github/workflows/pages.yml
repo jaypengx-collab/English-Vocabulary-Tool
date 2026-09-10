@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Stamp cache-busting version
+        run: |
+          VER="${GITHUB_SHA::8}"
+          sed -i "s/__BUILD_VERSION__/$VER/g" index.html app.js
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

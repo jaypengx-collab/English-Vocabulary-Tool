@@ -133,7 +133,7 @@ let VOCAB = [];
 let VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
 
 async function loadVocab() {
-  const res = await fetch("data/vocab.json?v=3");
+  const res = await fetch("data/vocab.json?v=__BUILD_VERSION__");
   VOCAB = await res.json();
   VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
   for (const w of VOCAB) {
