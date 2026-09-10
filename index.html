@@ -234,21 +234,6 @@
       <h2>各等級熟悉度</h2>
       <div id="progress-levels"></div>
 
-      <h2>單字明細</h2>
-      <div class="row" id="progress-filter-chips">
-        <button type="button" class="filter-chip active" data-state="attempted">已練習過</button>
-        <button type="button" class="filter-chip" data-state="new">尚未測驗</button>
-        <button type="button" class="filter-chip" data-state="incorrect">答錯待複習</button>
-        <button type="button" class="filter-chip" data-state="learning">學習中</button>
-        <button type="button" class="filter-chip" data-state="memorized">已熟記</button>
-        <button type="button" class="filter-chip" data-state="all">全部單字</button>
-      </div>
-      <div class="row">
-        <input type="text" id="progress-search" placeholder="搜尋單字..." />
-      </div>
-      <p class="hint">點擊單字可以顯示／隱藏中文意思，點擊 🔊 可以播放發音。</p>
-      <div id="progress-word-table"></div>
-
       <h2>🔄 跨裝置同步</h2>
       <p class="hint">把學習紀錄自動同步到你自己的其他裝置（手機、電腦、平板都可以），不用每次手動匯出匯入。第一次先在任一裝置按「建立新同步」，再到其他裝置輸入同一組代碼與密碼「加入同步」即可。</p>
 
@@ -308,6 +293,22 @@
       <div class="row actions">
         <button class="btn danger" id="reset-progress-btn">清除全部學習紀錄</button>
       </div>
+
+      <h2>單字明細</h2>
+      <div class="row" id="progress-filter-chips">
+        <button type="button" class="filter-chip active" data-state="attempted">已練習過</button>
+        <button type="button" class="filter-chip" data-state="new">尚未測驗</button>
+        <button type="button" class="filter-chip" data-state="incorrect">答錯待複習</button>
+        <button type="button" class="filter-chip" data-state="learning">學習中</button>
+        <button type="button" class="filter-chip" data-state="memorized">已熟記</button>
+        <button type="button" class="filter-chip" data-state="all">全部單字</button>
+      </div>
+      <div class="row">
+        <input type="text" id="progress-search" placeholder="搜尋單字..." />
+      </div>
+      <p class="hint">點擊單字可以顯示／隱藏中文意思，點擊 🔊 可以播放發音。</p>
+      <div id="progress-word-table"></div>
+      <div id="progress-word-table-pager"></div>
     </div>
   </section>
 

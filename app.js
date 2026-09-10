@@ -957,12 +957,18 @@ const STATE_LABELS = { new: "尚未測驗", incorrect: "答錯待複習", learni
 
 let progressFilter = "attempted";
 let progressSearch = "";
-const MAX_WORD_ROWS = 300;
+let progressWordPage = 0;
+// Same page size as the Review tab's own word-card pagination
+// (REVIEWLIST_PAGE_SIZE) - a flat, unpaginated table was unusable once
+// enough words had been attempted (up to 300 rows rendered at once,
+// burying the sync/backup sections below it under a very long scroll).
+const PROGRESS_WORD_PAGE_SIZE = REVIEWLIST_PAGE_SIZE;
 
 document.getElementById("progress-filter-chips").addEventListener("click", (e) => {
   const btn = e.target.closest(".filter-chip");
   if (!btn) return;
   progressFilter = btn.dataset.state;
+  progressWordPage = 0;
   document.querySelectorAll("#progress-filter-chips .filter-chip").forEach((b) => {
     b.classList.toggle("active", b === btn);
   });
@@ -970,6 +976,13 @@ document.getElementById("progress-filter-chips").addEventListener("click", (e) =
 });
 document.getElementById("progress-search").addEventListener("input", (e) => {
   progressSearch = e.target.value;
+  progressWordPage = 0;
+  renderWordTable();
+});
+document.getElementById("progress-word-table-pager").addEventListener("click", (e) => {
+  const pagerBtn = e.target.closest(".pager-btn");
+  if (!pagerBtn) return;
+  progressWordPage = Math.max(0, progressWordPage + Number(pagerBtn.dataset.dir));
   renderWordTable();
 });
 
@@ -1081,12 +1094,17 @@ function renderWordTable() {
   details.sort((a, b) => b.lastSeen - a.lastSeen);
 
   const container = document.getElementById("progress-word-table");
+  const pagerContainer = document.getElementById("progress-word-table-pager");
   if (!details.length) {
     container.innerHTML = `<p class="hint">沒有符合條件的單字。</p>`;
+    pagerContainer.innerHTML = "";
     return;
   }
 
-  const shown = details.slice(0, MAX_WORD_ROWS);
+  const totalPages = Math.max(1, Math.ceil(details.length / PROGRESS_WORD_PAGE_SIZE));
+  progressWordPage = Math.min(Math.max(0, progressWordPage), totalPages - 1);
+  const start = progressWordPage * PROGRESS_WORD_PAGE_SIZE;
+  const shown = details.slice(start, start + PROGRESS_WORD_PAGE_SIZE);
   const rows = shown
     .map(({ detail }) => `
       <tr>
@@ -1105,10 +1123,6 @@ function renderWordTable() {
       </tr>`)
     .join("");
 
-  const truncatedNote = details.length > MAX_WORD_ROWS
-    ? `<p class="hint">僅顯示前 ${MAX_WORD_ROWS} 筆（共 ${details.length} 筆符合條件），請用搜尋縮小範圍。</p>`
-    : "";
-
   container.innerHTML = `
     <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。複習測驗會依你的平均反應時間，優先挑選比較慢、比較久沒複習的單字。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
     <div class="word-table-wrap">
@@ -1117,8 +1131,8 @@ function renderWordTable() {
         <tbody>${rows}</tbody>
       </table>
     </div>
-    ${truncatedNote}
   `;
+  pagerContainer.innerHTML = buildPagerHtml("progress-word", progressWordPage, totalPages, details.length);
 }
 
 /* ---------- Backup / restore (export-to-file, temporary stand-in until
