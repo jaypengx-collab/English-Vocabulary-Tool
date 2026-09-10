@@ -227,27 +227,69 @@ function localAudioUrl(word) {
   return `data/audio/${encodeURIComponent(word.toLowerCase())}.mp3?v=__BUILD_VERSION__`;
 }
 
-let currentWordAudio = null;
+// Playback uses the Web Audio API (AudioContext + AudioBufferSourceNode)
+// rather than an <audio>/new Audio() element on purpose: an HTMLMediaElement
+// registers a system media session, which on iOS - especially for a page
+// added to the home screen (standalone display mode) - pops open the
+// Dynamic Island / Control Center "now playing" indicator on every single
+// word. Raw Web Audio buffer playback doesn't register a media session at
+// all, so it stays silent to the OS chrome. Decoded clips are cached per
+// word (by lowercase word) since the same word is often replayed.
+let audioCtx = null;
+const audioBufferCache = new Map(); // word.toLowerCase() -> Promise<AudioBuffer>
+let currentSource = null;
+
+function getAudioContext() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContextClass();
+  }
+  // iOS suspends the context until a user gesture resumes it; calling this
+  // synchronously at the top of speak() (itself always called from a click/
+  // submit/keydown handler) keeps it unlocked for the async playback below.
+  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function loadAudioBuffer(word) {
+  const key = word.toLowerCase();
+  if (audioBufferCache.has(key)) return audioBufferCache.get(key);
+  const promise = fetch(localAudioUrl(word))
+    .then((res) => {
+      if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`);
+      return res.arrayBuffer();
+    })
+    .then((buf) => getAudioContext().decodeAudioData(buf))
+    .catch((err) => {
+      audioBufferCache.delete(key); // let a later call retry instead of caching the failure forever
+      throw err;
+    });
+  audioBufferCache.set(key, promise);
+  return promise;
+}
 
 function speak(word) {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  if (currentWordAudio) {
-    currentWordAudio.pause();
-    currentWordAudio = null;
+  const ctx = getAudioContext();
+  if (currentSource) {
+    try {
+      currentSource.stop();
+    } catch (e) {
+      /* already stopped/finished - fine to ignore */
+    }
+    currentSource = null;
   }
 
-  const audio = new Audio(localAudioUrl(word));
-  audio.playbackRate = settings.rate;
-  currentWordAudio = audio;
-
-  let fellBack = false;
-  const fallback = () => {
-    if (fellBack) return;
-    fellBack = true;
-    speakWithWebSpeech(word);
-  };
-  audio.addEventListener("error", fallback);
-  audio.play().catch(fallback);
+  loadAudioBuffer(word)
+    .then((buffer) => {
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.playbackRate.value = settings.rate;
+      source.connect(ctx.destination);
+      currentSource = source;
+      source.start(0);
+    })
+    .catch(() => speakWithWebSpeech(word));
 }
 
 /* ---------- View navigation ---------- */
