@@ -133,7 +133,7 @@ let VOCAB = [];
 let VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
 
 async function loadVocab() {
-  const res = await fetch("data/vocab.json");
+  const res = await fetch("data/vocab.json?v=3");
   VOCAB = await res.json();
   VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
   for (const w of VOCAB) {
@@ -165,7 +165,12 @@ function shuffle(arr) {
 
 function buildSession(pool, size) {
   const now = Date.now();
-  const withDue = pool.map((w) => ({ w, due: getDue(w.word) }));
+  // Shuffle before sorting: words with the same due time (e.g. everything
+  // is "due" the first time you ever open the app) would otherwise keep
+  // the list's original order - alphabetical, one level at a time - since
+  // Array.prototype.sort is stable. Shuffling first makes ties (and so the
+  // level mix and the pick order) random instead.
+  const withDue = shuffle(pool).map((w) => ({ w, due: getDue(w.word) }));
   withDue.sort((a, b) => a.due - b.due);
   const due = withDue.filter((x) => x.due <= now).map((x) => x.w);
   const notDue = withDue.filter((x) => x.due > now).map((x) => x.w);
