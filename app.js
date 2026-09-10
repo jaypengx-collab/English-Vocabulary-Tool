@@ -193,7 +193,14 @@ function refreshVoices() {
   }
 }
 
-function speak(text) {
+// Browser speechSynthesis quality varies wildly by OS/browser (often
+// robotic or missing decent English voices entirely), so every vocab word
+// is pre-rendered once, offline, with a single good neural voice (see
+// scripts/generate_audio.py) and shipped as a static clip. This is the
+// primary playback path; speechSynthesis is kept only as a fallback for
+// the rare case a clip fails to load (e.g. a word added without
+// regenerating audio yet, or a network hiccup on first fetch).
+function speakWithWebSpeech(text) {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
@@ -206,6 +213,41 @@ function speak(text) {
   }
   utter.rate = settings.rate;
   window.speechSynthesis.speak(utter);
+}
+
+function localAudioUrl(word) {
+  return `data/audio/${encodeURIComponent(word.toLowerCase())}.mp3?v=__BUILD_VERSION__`;
+}
+
+let currentWordAudio = null;
+
+function speak(word) {
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (currentWordAudio) {
+    currentWordAudio.pause();
+    currentWordAudio = null;
+  }
+
+  const audio = new Audio(localAudioUrl(word));
+  audio.playbackRate = settings.rate;
+  currentWordAudio = audio;
+
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    speakWithWebSpeech(word);
+  };
+  audio.addEventListener("error", fallback);
+  audio.play().catch(fallback);
+}
+
+// The home screen's "試聽" button previews the selected FALLBACK voice
+// (the one speechSynthesis will use if a word's local clip can't load),
+// so it always goes through speechSynthesis directly rather than through
+// speak(), which would just play local audio and not exercise that voice.
+function speakPreview(text) {
+  speakWithWebSpeech(text);
 }
 
 /* ---------- View navigation ---------- */
@@ -255,7 +297,7 @@ document.getElementById("voice-select").addEventListener("change", (e) => {
 });
 
 document.getElementById("test-voice-btn").addEventListener("click", () => {
-  speak("vocabulary");
+  speakPreview("vocabulary");
 });
 
 document.getElementById("session-size").addEventListener("change", (e) => {
