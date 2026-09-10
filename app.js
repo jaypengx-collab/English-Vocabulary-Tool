@@ -153,8 +153,18 @@ async function loadVocab() {
   // fills in any newly-added fields on already-current entries) without
   // resetting existing progress. Safe to run on every load - it's a no-op
   // merge once everything is already in the current shape.
+  //
+  // persistProgress(), NOT saveProgress(): this runs on EVERY load, whether
+  // or not migration actually changed anything, so it must never be treated
+  // as "the user made a change, push it" (see saveProgress's own
+  // notifyLocalChange call) - that previously marked a fresh page load
+  // dirty before sync.js had pulled even once, so the very first sync tick
+  // of the session saw dirty=true and PUSHED this device's local data over
+  // whatever newer data another device had already published, instead of
+  // pulling it down. A real local edit (an answer, an import, a reset)
+  // still calls saveProgress() itself and is still pushed normally.
   progressStore = Logic.migrateProgressStore(progressStore, VOCAB_INDEX);
-  saveProgress();
+  persistProgress();
 }
 
 function selectedLevels() {

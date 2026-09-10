@@ -356,6 +356,16 @@ async function deleteSyncDoc(code, passcode) {
 let dirty = false;
 let syncInFlight = false;
 let vocabReady = false;
+// Safety net, independent of `dirty`: this device must reconcile with the
+// server at least once per page load before it's ever allowed to push -
+// see syncTick(). This is what stops a page load from overwriting another
+// device's newer progress with this device's local (possibly older) copy,
+// even if something elsewhere incorrectly marks `dirty` true before the
+// first real sync tick has run (exactly what happened once already: a
+// routine per-load migration save was wrongly wired to notifyLocalChange,
+// see app.js's loadVocab - fixed there, but this is the belt-and-suspenders
+// backstop so the same MISTAKE can never cause the same data loss again).
+let hasSyncedSinceLoad = false;
 
 function setSyncStatus(text, isError) {
   const el = document.getElementById("sync-status");
@@ -408,10 +418,25 @@ async function pullSnapshot(opts) {
 // since its last push, otherwise pull to pick up any change from another
 // of this learner's devices. Never both in the same tick, same reasoning
 // as Orbit's own syncTick - a push always means "we are already current."
+//
+// The FIRST tick of a session is never allowed to push, `dirty` or not -
+// see hasSyncedSinceLoad's own comment for why that guard exists at all.
+// It always pulls first, establishing what the server actually has before
+// this device's own local copy is trusted with anything.
 async function syncTick() {
   if (!isSyncConfigured() || !navigator.onLine || document.hidden || syncInFlight || !vocabReady) return false;
   syncInFlight = true;
   try {
+    if (!hasSyncedSinceLoad) {
+      const result = await pullSnapshot();
+      hasSyncedSinceLoad = true;
+      if (result.ok && result.applied) {
+        setSyncStatus(`已從其他裝置更新學習紀錄（${new Date().toLocaleTimeString("zh-TW")}）`);
+      } else if (!result.ok) {
+        setSyncStatus(result.error, true);
+      }
+      return !!(result.ok && result.applied);
+    }
     if (dirty) {
       const result = await pushSnapshot();
       setSyncStatus(result.ok ? `已同步（${new Date().toLocaleTimeString("zh-TW")}）` : result.error, !result.ok);
@@ -575,6 +600,10 @@ function vocabSyncCreate() {
     setSyncPairing(result.code, result.passcode);
     writeLocal(LAST_UPDATE_KEY, result.updateTime);
     dirty = false;
+    // This device just established the server's baseline itself (there
+    // was nothing to reconcile with - the document didn't exist a moment
+    // ago), same reasoning as vocabSyncJoin's own applied pull below.
+    hasSyncedSinceLoad = true;
     pendingCreatedCodes = { code: result.code, passcode: result.passcode };
     setSyncStatus("");
     renderSyncPanel();
@@ -630,6 +659,10 @@ function vocabSyncJoin() {
     setSyncPairing(code, passcode);
     writeLocal(LAST_UPDATE_KEY, doc.updateTime);
     dirty = false;
+    // This join just fetched-and-applied the server's current data, which
+    // IS reconciling with it - the first automatic tick afterward doesn't
+    // need to force another pull first (see hasSyncedSinceLoad).
+    hasSyncedSinceLoad = true;
     if (codeInput) codeInput.value = "";
     if (passcodeInput) passcodeInput.value = "";
     setSyncStatus("已加入同步。");
@@ -646,6 +679,16 @@ function vocabSyncNow() {
   }
   withButtonDisabled("sync-now-btn", async () => {
     setSyncStatus("正在同步…");
+    // Same safety net as syncTick(): never push before this device has
+    // reconciled with the server at least once this session, no matter
+    // what dirty says - see hasSyncedSinceLoad's own comment.
+    if (!hasSyncedSinceLoad) {
+      const result = await pullSnapshot({ force: true });
+      hasSyncedSinceLoad = true;
+      if (!result.ok) setSyncStatus(result.error, true);
+      else setSyncStatus(result.applied ? "已更新為最新的學習紀錄。" : "已是最新。");
+      return;
+    }
     if (dirty) {
       const result = await pushSnapshot();
       setSyncStatus(result.ok ? "已同步。" : result.error, !result.ok);
