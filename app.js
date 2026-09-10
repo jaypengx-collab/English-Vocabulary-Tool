@@ -693,13 +693,34 @@ let progressFilter = "attempted";
 let progressSearch = "";
 const MAX_WORD_ROWS = 300;
 
-document.getElementById("progress-filter").addEventListener("change", (e) => {
-  progressFilter = e.target.value;
-  renderProgress();
+document.getElementById("progress-filter-chips").addEventListener("click", (e) => {
+  const btn = e.target.closest(".filter-chip");
+  if (!btn) return;
+  progressFilter = btn.dataset.state;
+  document.querySelectorAll("#progress-filter-chips .filter-chip").forEach((b) => {
+    b.classList.toggle("active", b === btn);
+  });
+  renderWordTable();
 });
 document.getElementById("progress-search").addEventListener("input", (e) => {
   progressSearch = e.target.value;
-  renderProgress();
+  renderWordTable();
+});
+
+// Delegated (not per-row) so it keeps working across re-renders: play a
+// word's pronunciation, or toggle its Chinese meaning open/closed, right
+// from the Progress word table.
+document.getElementById("progress-word-table").addEventListener("click", (e) => {
+  const playBtn = e.target.closest(".row-play-btn");
+  if (playBtn) {
+    speak(playBtn.dataset.word);
+    return;
+  }
+  const toggle = e.target.closest(".row-word-toggle");
+  if (toggle) {
+    const zhDiv = toggle.closest(".word-cell").querySelector(".row-zh");
+    if (zhDiv) zhDiv.classList.toggle("hidden");
+  }
 });
 
 function formatMs(ms) {
@@ -803,7 +824,12 @@ function renderWordTable() {
   const rows = shown
     .map(({ detail }) => `
       <tr>
-        <td class="word-cell">${detail.word}</td>
+        <td class="word-cell">
+          <button type="button" class="row-play-btn" data-word="${escapeHtml(detail.word)}" title="播放發音">🔊</button>
+          <span class="row-word-toggle" title="點擊顯示／隱藏中文意思">${escapeHtml(detail.word)}</span>
+          <span class="muted">${escapeHtml(detail.pos || "")}</span>
+          <div class="row-zh hidden">${zhLines(detail.zh).map((l) => escapeHtml(l)).join("<br>")}</div>
+        </td>
         <td>${detail.level}</td>
         <td>${detail.correct} / ${detail.incorrect}</td>
         <td title="連續答對次數，答錯會歸零；連續 2 次才算已熟記">${detail.correctStreak}</td>

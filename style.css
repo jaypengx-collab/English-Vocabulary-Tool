@@ -121,6 +121,19 @@ body {
 
 .level-chip input { accent-color: var(--primary); width: 16px; height: 16px; }
 
+.filter-chip {
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-chip.active { background: var(--primary); color: var(--primary-text); }
+
 .hint {
   color: var(--muted);
   font-size: 0.85rem;
@@ -417,6 +430,36 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 .word-table tbody tr:last-child td { border-bottom: none; }
 
 .word-cell { font-weight: 600; }
+
+.row-play-btn {
+  border: none;
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.row-word-toggle {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.row-zh {
+  white-space: normal;
+  max-width: 280px;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-top: 4px;
+  line-height: 1.5;
+}
 
 .diff-miss {
   background: rgba(224, 49, 49, 0.15);

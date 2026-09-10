@@ -180,18 +180,18 @@
       <div id="progress-levels"></div>
 
       <h2>單字明細</h2>
+      <div class="row" id="progress-filter-chips">
+        <button type="button" class="filter-chip active" data-state="attempted">已練習過</button>
+        <button type="button" class="filter-chip" data-state="new">尚未測驗</button>
+        <button type="button" class="filter-chip" data-state="incorrect">答錯待複習</button>
+        <button type="button" class="filter-chip" data-state="learning">學習中</button>
+        <button type="button" class="filter-chip" data-state="memorized">已熟記</button>
+        <button type="button" class="filter-chip" data-state="all">全部單字</button>
+      </div>
       <div class="row">
-        <label for="progress-filter">篩選</label>
-        <select id="progress-filter">
-          <option value="attempted" selected>已練習過的單字</option>
-          <option value="new">尚未測驗</option>
-          <option value="incorrect">答錯待複習</option>
-          <option value="learning">學習中</option>
-          <option value="memorized">已熟記</option>
-          <option value="all">全部單字</option>
-        </select>
         <input type="text" id="progress-search" placeholder="搜尋單字..." />
       </div>
+      <p class="hint">點擊單字可以顯示／隱藏中文意思，點擊 🔊 可以播放發音。</p>
       <div id="progress-word-table"></div>
 
       <h2>備份與還原</h2>
