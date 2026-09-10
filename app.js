@@ -357,9 +357,39 @@ function showView(name) {
   if (name === "reviewlist") renderReviewList();
 }
 
+// Leaving the Vocabulary Test or Review Test view via a tab click used to
+// silently PAUSE an unfinished round (vocabTest.inProgress/
+// reviewTest.inProgress stayed true) rather than end it - the round was
+// still sitting there, built from whatever level checkboxes were checked
+// back when it started. Clicking "開始單字測驗"/"開始複習測驗" again just
+// resumed that same stale round (see those buttons' own handlers below:
+// `if (X.inProgress) { showView(...); return; }` skips rebuilding the list
+// entirely), even after changing the level checkboxes - which looked
+// exactly like "the test always picks Level 4" whenever an earlier round
+// happened to start Level-4-only and got abandoned via a tab click instead
+// of actually finished. Tab-clicking away from an unfinished round now
+// requires confirming, and confirming ends the round for real (not just
+// hides it) so the level checkboxes are honored the next time either
+// button is pressed.
+function isLeavingActiveRound() {
+  const activeView = document.querySelector(".view.active");
+  if (!activeView) return false;
+  if (activeView.id === "view-test" && vocabTest.inProgress) return true;
+  if (activeView.id === "view-review" && reviewTest.inProgress) return true;
+  return false;
+}
+
 document.getElementById("tabs").addEventListener("click", (e) => {
   const btn = e.target.closest(".tab-btn");
-  if (btn) showView(btn.dataset.view);
+  if (!btn) return;
+  if (isLeavingActiveRound()) {
+    const label = document.querySelector(".view.active").id === "view-test" ? "單字測驗" : "複習測驗";
+    const confirmed = confirm(`${label}還沒完成，確定要離開嗎？\n\n離開後這一回合會結束，下次按「開始」會開始新的一回合（不會保留繼續作答）。`);
+    if (!confirmed) return;
+    vocabTest.inProgress = false;
+    reviewTest.inProgress = false;
+  }
+  showView(btn.dataset.view);
 });
 
 /* ---------- Home / setup view ---------- */
