@@ -381,6 +381,14 @@ async function deleteSyncDoc(code, passcode) {
 // pull" shape as Orbit's own syncTick.
 let dirty = false;
 let syncInFlight = false;
+// The promise behind the currently-running tick, if any - lets a caller
+// that shows up WHILE one is already running (see syncTick below) join and
+// await its actual result instead of just being told "busy, try later" via
+// a bare `false`. This matters for reconcileBeforeStarting: without it, a
+// device that starts a round right after the page's own on-load sync
+// kicked off (still in flight) would have its "grab the latest data first"
+// request silently do nothing instead of waiting for that in-flight tick.
+let syncInFlightPromise = null;
 let vocabReady = false;
 // Safety net, independent of `dirty`: this device must reconcile with the
 // server at least once per page load before it's ever allowed to push -
@@ -497,33 +505,67 @@ async function pullSnapshot(opts) {
 // computeTotalAttempts's comment) decides, from the actual data, whether
 // this device's copy is safe to publish or whether the server's is ahead
 // and should be pulled instead. No more session-order guessing either way.
-async function syncTick() {
-  if (!isSyncConfigured() || !navigator.onLine || document.hidden || syncInFlight || !vocabReady) return false;
-  syncInFlight = true;
-  try {
-    if (dirty || !hasSyncedSinceLoad) {
-      const result = await pushSnapshot();
-      hasSyncedSinceLoad = true;
-      if (!result.ok) {
-        setSyncStatus(result.error, true);
-      } else if (result.pulledInstead) {
-        setSyncStatus(
-          `其他裝置的練習次數比較多（${result.remoteTotalAttempts} 次，這台裝置 ${result.localTotalAttempts} 次），已改為抓取最新進度，避免覆蓋掉它。`
-        );
-      } else {
-        setSyncStatus(`已同步（${new Date().toLocaleTimeString("zh-TW")}）`);
-      }
-      return result.ok;
-    }
-    const result = await pullSnapshot();
-    if (result.ok && result.applied) {
-      setSyncStatus(`已從其他裝置更新學習紀錄（${new Date().toLocaleTimeString("zh-TW")}）`);
-    } else if (!result.ok) {
+async function runSyncTick() {
+  if (dirty || !hasSyncedSinceLoad) {
+    const result = await pushSnapshot();
+    hasSyncedSinceLoad = true;
+    if (!result.ok) {
       setSyncStatus(result.error, true);
+    } else if (result.pulledInstead) {
+      setSyncStatus(
+        `其他裝置的練習次數比較多（${result.remoteTotalAttempts} 次，這台裝置 ${result.localTotalAttempts} 次），已改為抓取最新進度，避免覆蓋掉它。`
+      );
+    } else {
+      setSyncStatus(`已同步（${new Date().toLocaleTimeString("zh-TW")}）`);
     }
-    return !!(result.ok && result.applied);
-  } finally {
-    syncInFlight = false;
+    return result.ok;
+  }
+  const result = await pullSnapshot();
+  if (result.ok && result.applied) {
+    setSyncStatus(`已從其他裝置更新學習紀錄（${new Date().toLocaleTimeString("zh-TW")}）`);
+  } else if (!result.ok) {
+    setSyncStatus(result.error, true);
+  }
+  return !!(result.ok && result.applied);
+}
+
+// A caller that arrives while a tick is already running (e.g.
+// reconcileBeforeStarting firing right after the page's own on-load sync
+// kicked off) joins that SAME in-flight promise and gets its real result,
+// rather than getting turned away with a bare `false` the way a plain
+// re-entrancy guard would - see syncInFlightPromise's own comment above.
+async function syncTick() {
+  if (syncInFlight) return syncInFlightPromise;
+  if (!isSyncConfigured() || !navigator.onLine || document.hidden || !vocabReady) return false;
+  syncInFlight = true;
+  syncInFlightPromise = (async () => {
+    try {
+      return await runSyncTick();
+    } finally {
+      syncInFlight = false;
+      syncInFlightPromise = null;
+    }
+  })();
+  return syncInFlightPromise;
+}
+
+// Used by app.js's start-test-btn/start-review-btn handlers to grab the
+// latest synced progress right before building that round's question list -
+// on top of the on-load/on-focus sync above, this covers a device that's
+// been sitting idle (open in a background tab, or just not touched in a
+// while) since its last reconcile, where another device may have pushed
+// something newer in the meantime. Races syncTick() against a short
+// timeout so a slow or hung network can never hold up starting a round -
+// if it doesn't finish in time, the round just starts from whatever's
+// already local, same as if this call weren't made at all.
+const RECONCILE_BEFORE_START_TIMEOUT_MS = 4000;
+async function reconcileBeforeStarting() {
+  if (!isSyncConfigured() || !navigator.onLine) return false;
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(false), RECONCILE_BEFORE_START_TIMEOUT_MS));
+  try {
+    return await Promise.race([syncTick(), timeout]);
+  } catch (e) {
+    return false;
   }
 }
 
@@ -917,4 +959,5 @@ window.VocabSync = {
   // app.js's finishTest/finishReview/recordResult. Just syncOnAppActive
   // under a name that reads correctly from a caller outside this file.
   syncNow: syncOnAppActive,
+  reconcileBeforeStarting: reconcileBeforeStarting,
 };

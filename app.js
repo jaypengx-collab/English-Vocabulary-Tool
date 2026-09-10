@@ -322,6 +322,7 @@ function localAudioUrl(word) {
 let audioCtx = null;
 const audioBufferCache = new Map(); // word.toLowerCase() -> Promise<AudioBuffer>
 let currentSource = null;
+let speakRequestId = 0;
 
 function getAudioContext() {
   if (!audioCtx) {
@@ -330,7 +331,10 @@ function getAudioContext() {
   }
   // iOS suspends the context until a user gesture resumes it; calling this
   // synchronously at the top of speak() (itself always called from a click/
-  // submit/keydown handler) keeps it unlocked for the async playback below.
+  // submit/keydown handler) - or, for start-test-btn/start-review-btn,
+  // synchronously at the very top of their click handler, before their own
+  // `await` - keeps the resume() call itself inside the gesture even
+  // though playback may not actually start until later.
   if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
   return audioCtx;
 }
@@ -352,9 +356,19 @@ function loadAudioBuffer(word) {
   return promise;
 }
 
+// Each call gets its own id, checked again once its buffer is ready -
+// without this, two speak() calls close together (next word shown right
+// after a slow replay tap, or vice versa) could resolve out of order: the
+// OLDER call's fetch/decode finishing after the newer one's already started
+// playing would then overwrite currentSource and start itself on top of/
+// after the correct audio, which could easily look like "sometimes audio
+// doesn't play" (the right word's audio getting cut off or never actually
+// heard). Whichever call was requested LAST always wins now, regardless of
+// which one's promise resolves last.
 function speak(word) {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   const ctx = getAudioContext();
+  const requestId = ++speakRequestId;
   if (currentSource) {
     try {
       currentSource.stop();
@@ -365,7 +379,20 @@ function speak(word) {
   }
 
   loadAudioBuffer(word)
-    .then((buffer) => {
+    .then(async (buffer) => {
+      if (requestId !== speakRequestId) return; // superseded by a newer speak() call
+      if (ctx.state === "suspended") {
+        // Starting a buffer source while the context is still suspended can
+        // silently drop the audio on some browsers instead of queuing it -
+        // wait for the resume already kicked off in getAudioContext() (or
+        // kick/await one now) before actually starting playback.
+        try {
+          await ctx.resume();
+        } catch (e) {
+          /* ignore - source.start below still no-ops safely if this never resolves */
+        }
+        if (requestId !== speakRequestId) return; // re-check: the await above may have taken a moment
+      }
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.playbackRate.value = settings.rate;
@@ -373,7 +400,10 @@ function speak(word) {
       currentSource = source;
       source.start(0);
     })
-    .catch(() => speakWithWebSpeech(word));
+    .catch(() => {
+      if (requestId !== speakRequestId) return;
+      speakWithWebSpeech(word);
+    });
 }
 
 /* ---------- View navigation ---------- */
@@ -622,33 +652,51 @@ function updateTestTimeDisplay() {
 // DOM (just hidden via CSS) while inactive, so simply re-showing it is
 // enough to restore its on-screen state; only a *finished* round (or no
 // round at all yet) should build a fresh one.
-document.getElementById("start-test-btn").addEventListener("click", () => {
+document.getElementById("start-test-btn").addEventListener("click", async (e) => {
   if (vocabTest.inProgress) {
     showView("test");
     return;
   }
   const levels = selectedLevels();
   if (!levels.length) return;
-  const pool = wordsForLevels(levels);
-  // The round is time-boxed (settings.testMinutes), not question-counted -
-  // request the WHOLE available pool up front so the list never runs out
-  // before the clock does (selectTestQuestions can't return more than
-  // pool.length distinct words anyway, so this is never wasteful, just
-  // generous). testTimeUp()/advanceTest() below are what actually end the
-  // round.
-  vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: pool.length });
-  vocabTest.index = 0;
-  vocabTest.answeredCount = 0;
-  vocabTest.correctCount = 0;
-  vocabTest.missed = [];
-  vocabTest.inProgress = true;
-  vocabTest.startedAt = Date.now();
-  vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
-  document.getElementById("test-summary").classList.add("hidden");
-  document.getElementById("test-form").classList.remove("hidden");
-  showView("test");
-  startRoundTimer(updateTestTimeDisplay);
-  showTestWord();
+  // Unlocks the AudioContext synchronously, inside this click's own call
+  // stack, before the `await` below - see getAudioContext()'s comment.
+  // Doing this AFTER an await would risk losing the "tied to a user
+  // gesture" status some browsers (iOS Safari) require for resume() to
+  // actually take effect, which would otherwise make the word shown by
+  // showTestWord() below silent.
+  getAudioContext();
+  const startBtn = e.currentTarget;
+  startBtn.disabled = true;
+  try {
+    // Picks up any progress synced from another device since this device's
+    // last reconcile (page load, or last time it regained focus) - see
+    // reconcileBeforeStarting's own comment. Time-boxed against a short
+    // timeout, so a slow/offline network never blocks starting a round.
+    if (window.VocabSync) await window.VocabSync.reconcileBeforeStarting();
+    const pool = wordsForLevels(levels);
+    // The round is time-boxed (settings.testMinutes), not question-counted -
+    // request the WHOLE available pool up front so the list never runs out
+    // before the clock does (selectTestQuestions can't return more than
+    // pool.length distinct words anyway, so this is never wasteful, just
+    // generous). testTimeUp()/advanceTest() below are what actually end the
+    // round.
+    vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: pool.length });
+    vocabTest.index = 0;
+    vocabTest.answeredCount = 0;
+    vocabTest.correctCount = 0;
+    vocabTest.missed = [];
+    vocabTest.inProgress = true;
+    vocabTest.startedAt = Date.now();
+    vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
+    document.getElementById("test-summary").classList.add("hidden");
+    document.getElementById("test-form").classList.remove("hidden");
+    showView("test");
+    startRoundTimer(updateTestTimeDisplay);
+    showTestWord();
+  } finally {
+    startBtn.disabled = false;
+  }
 });
 
 function showTestWord() {
@@ -796,41 +844,54 @@ function updateReviewTimeDisplay() {
 
 // Same "no dedicated tab, resume on return" rule as the Vocabulary Test -
 // see the comment on start-test-btn above.
-document.getElementById("start-review-btn").addEventListener("click", () => {
+document.getElementById("start-review-btn").addEventListener("click", async (e) => {
   if (reviewTest.inProgress) {
     showView("review");
     return;
   }
   const levels = selectedLevels();
   if (!levels.length) return;
-  const pool = wordsForLevels(levels);
-  // size: 0 means "all available" (see buildReviewTestList) - same reason
-  // as the Vocabulary Test's pool.length above: the round is time-boxed
-  // (settings.reviewMinutes), not question-counted, so request everything
-  // there is to review and let the clock decide how much of it gets used.
-  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: 0 });
-  reviewTest.index = 0;
-  reviewTest.records = [];
+  // See the matching comment on start-test-btn above: this must run
+  // synchronously, before the `await` below, to keep the eventual
+  // showReviewWord() -> speak() call tied to this click's user gesture.
+  getAudioContext();
+  const startBtn = e.currentTarget;
+  startBtn.disabled = true;
+  try {
+    // See reconcileBeforeStarting's own comment - picks up any progress
+    // synced from another device since this device's last reconcile.
+    if (window.VocabSync) await window.VocabSync.reconcileBeforeStarting();
+    const pool = wordsForLevels(levels);
+    // size: 0 means "all available" (see buildReviewTestList) - same reason
+    // as the Vocabulary Test's pool.length above: the round is time-boxed
+    // (settings.reviewMinutes), not question-counted, so request everything
+    // there is to review and let the clock decide how much of it gets used.
+    reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: 0 });
+    reviewTest.index = 0;
+    reviewTest.records = [];
 
-  showView("review");
-  const empty = document.getElementById("rev-empty");
-  const body = document.getElementById("rev-body");
-  const summary = document.getElementById("rev-summary");
-  summary.classList.add("hidden");
+    showView("review");
+    const empty = document.getElementById("rev-empty");
+    const body = document.getElementById("rev-body");
+    const summary = document.getElementById("rev-summary");
+    summary.classList.add("hidden");
 
-  if (!reviewTest.list.length) {
-    empty.classList.remove("hidden");
-    body.classList.add("hidden");
-    return;
+    if (!reviewTest.list.length) {
+      empty.classList.remove("hidden");
+      body.classList.add("hidden");
+      return;
+    }
+    reviewTest.inProgress = true;
+    reviewTest.startedAt = Date.now();
+    reviewTest.timeLimitMs = settings.reviewMinutes * 60 * 1000;
+    empty.classList.add("hidden");
+    body.classList.remove("hidden");
+    document.getElementById("rev-form").classList.remove("hidden");
+    startRoundTimer(updateReviewTimeDisplay);
+    showReviewWord();
+  } finally {
+    startBtn.disabled = false;
   }
-  reviewTest.inProgress = true;
-  reviewTest.startedAt = Date.now();
-  reviewTest.timeLimitMs = settings.reviewMinutes * 60 * 1000;
-  empty.classList.add("hidden");
-  body.classList.remove("hidden");
-  document.getElementById("rev-form").classList.remove("hidden");
-  startRoundTimer(updateReviewTimeDisplay);
-  showReviewWord();
 });
 
 document.getElementById("rev-empty-home-btn").addEventListener("click", () => showView("home"));
