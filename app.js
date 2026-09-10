@@ -416,19 +416,48 @@ let audioCtx = null;
 const audioBufferCache = new Map(); // word.toLowerCase() -> Promise<AudioBuffer>
 let currentSource = null;
 let speakRequestId = 0;
+// Set the moment the page is backgrounded (see the visibilitychange/
+// pagehide listeners below), cleared once getAudioContext() has rebuilt a
+// fresh context after it. Closing (see the "closed" check below) only
+// catches the case where iOS is honest about having killed the context -
+// in practice, backgrounding a Home Screen-installed PWA for "long enough"
+// (inconsistent - sometimes seconds, sometimes longer, seemingly tied to
+// memory pressure/how many other apps got switched through) can leave the
+// context reporting a perfectly ordinary "suspended" state that then never
+// actually completes resume() no matter how many times it's called -
+// effectively dead, but without ever announcing it. There's no reliable
+// way to detect that from the state alone, so instead: ANY time the page
+// was hidden at all, throw the context away and build a completely fresh
+// one on the next real gesture, rather than gambling on whether resuming
+// the old one will actually work this time.
+let audioCtxStaleFromBackground = false;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") audioCtxStaleFromBackground = true;
+});
+window.addEventListener("pagehide", () => {
+  audioCtxStaleFromBackground = true;
+});
 
 function getAudioContext() {
-  if (!audioCtx || audioCtx.state === "closed") {
+  if (audioCtx && (audioCtxStaleFromBackground || audioCtx.state === "closed")) {
+    // close() always returns a Promise (never throws synchronously) that
+    // REJECTS if the context is already closed - catch that explicitly
+    // rather than relying on a synchronous try/catch, which does nothing
+    // for a rejection that surfaces later as an unhandled promise
+    // rejection instead of a thrown exception.
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
+  if (!audioCtx) {
     // iOS Safari doesn't just SUSPEND the AudioContext when a Home
     // Screen-installed PWA is backgrounded (app-switcher swipe away) - it
     // can fully CLOSE it to reclaim the audio hardware for whatever's now
-    // in the foreground. A closed context can never come back: resume()
-    // on it rejects and createBufferSource() throws, so without this
-    // check, returning to the app (swipe back in) leaves audio completely
-    // and permanently dead until the whole page reloads. A closed context
-    // is simply replaced with a fresh one here instead.
+    // in the foreground, or leave it in a state that LOOKS suspended but
+    // can never actually resume (see audioCtxStaleFromBackground's own
+    // comment above) - a fresh context here recovers from either.
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     audioCtx = new AudioContextClass();
+    audioCtxStaleFromBackground = false;
   }
   // Covers both the ordinary "suspended until a user gesture resumes it"
   // state and iOS Safari's own "interrupted" state (a Safari-specific
