@@ -95,6 +95,8 @@ body {
   box-shadow: var(--shadow);
 }
 
+.card + .card { margin-top: 16px; }
+
 .card h2 {
   font-size: 1rem;
   margin: 24px 0 10px 0;

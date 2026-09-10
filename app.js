@@ -689,11 +689,18 @@ document.getElementById("rev-home-btn").addEventListener("click", () => showView
 /* ---------- Review List (browsable Learning / Incorrect words) ---------- */
 
 const REVIEWLIST_MAX = 150;
+let reviewListIncorrectSort = "tries";
 let reviewListLearningSort = "slow";
 
-function sortReviewListLearning(items, mode) {
+// Shared by both the Incorrect and Learning lists - not every mode is
+// offered in both dropdowns, but the comparators are the same either way.
+function sortReviewListItems(items, mode) {
   const arr = items.slice();
   switch (mode) {
+    case "tries":
+      // Most total attempts first - the words that keep coming up.
+      arr.sort((a, b) => b.detail.attempts - a.detail.attempts);
+      break;
     case "streak":
       arr.sort((a, b) => a.detail.correctStreak - b.detail.correctStreak);
       break;
@@ -764,14 +771,19 @@ function renderReviewList() {
     lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
   }));
 
-  const learningItems = sortReviewListLearning(toItems(cats.learning), reviewListLearningSort);
-  renderReviewCategory("reviewlist-learning", learningItems, false, "目前沒有學習中的單字，去做幾回合單字測驗吧！");
-  document.getElementById("reviewlist-learning-count").textContent = learningItems.length;
-
-  const incorrectItems = toItems(cats.incorrect).sort((a, b) => b.lastSeen - a.lastSeen);
+  const incorrectItems = sortReviewListItems(toItems(cats.incorrect), reviewListIncorrectSort);
   renderReviewCategory("reviewlist-incorrect", incorrectItems, true, "目前沒有答錯待複習的單字，太厲害了！");
   document.getElementById("reviewlist-incorrect-count").textContent = incorrectItems.length;
+
+  const learningItems = sortReviewListItems(toItems(cats.learning), reviewListLearningSort);
+  renderReviewCategory("reviewlist-learning", learningItems, false, "目前沒有學習中的單字，去做幾回合單字測驗吧！");
+  document.getElementById("reviewlist-learning-count").textContent = learningItems.length;
 }
+
+document.getElementById("reviewlist-incorrect-sort").addEventListener("change", (e) => {
+  reviewListIncorrectSort = e.target.value;
+  renderReviewList();
+});
 
 document.getElementById("reviewlist-learning-sort").addEventListener("change", (e) => {
   reviewListLearningSort = e.target.value;
