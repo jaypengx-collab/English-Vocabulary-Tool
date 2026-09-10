@@ -173,6 +173,13 @@
   <!-- REVIEW LIST (browsable Learning / Incorrect words, not a quiz) -->
   <section id="view-reviewlist" class="view">
     <div class="card">
+      <h2>複習</h2>
+      <div class="row">
+        <input type="text" id="reviewlist-search" placeholder="搜尋單字（同時篩選下面兩個清單）..." />
+      </div>
+    </div>
+
+    <div class="card">
       <h2>答錯待複習 <span class="muted">（<span id="reviewlist-incorrect-count">0</span>）</span></h2>
       <p class="hint">列出答錯之後正確拼法與你實際打的內容，方便找出自己容易錯在哪裡。</p>
       <div class="row">
@@ -186,6 +193,7 @@
         </select>
       </div>
       <div id="reviewlist-incorrect"></div>
+      <div id="reviewlist-incorrect-pager"></div>
     </div>
 
     <div class="card">
@@ -202,6 +210,7 @@
         </select>
       </div>
       <div id="reviewlist-learning"></div>
+      <div id="reviewlist-learning-pager"></div>
     </div>
   </section>
 

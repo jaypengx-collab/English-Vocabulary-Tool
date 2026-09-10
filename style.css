@@ -530,6 +530,28 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   margin-top: 6px;
 }
 
+.pager {
+  justify-content: center;
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.pager-btn {
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pager-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .footer {
   text-align: center;
   color: var(--muted);

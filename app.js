@@ -730,9 +730,12 @@ document.getElementById("rev-home-btn").addEventListener("click", () => showView
 
 /* ---------- Review List (browsable Learning / Incorrect words) ---------- */
 
-const REVIEWLIST_MAX = 150;
+const REVIEWLIST_PAGE_SIZE = 20;
+let reviewListSearch = "";
 let reviewListIncorrectSort = "tries";
 let reviewListLearningSort = "slow";
+let reviewListIncorrectPage = 0;
+let reviewListLearningPage = 0;
 
 // Shared by both the Incorrect and Learning lists - not every mode is
 // offered in both dropdowns, but the comparators are the same either way.
@@ -785,18 +788,37 @@ function buildWordCard(detail, showWrongInfo) {
     </div>`;
 }
 
-function renderReviewCategory(containerId, items, showWrongInfo, emptyText) {
+// With hundreds of words in a category, a flat unpaginated card list is
+// unusable - this pages results (REVIEWLIST_PAGE_SIZE per page) and
+// returns the (possibly clamped, e.g. after a search shrinks the result
+// count) page number so the caller can keep its page-state variable in
+// sync.
+function renderReviewCategory(containerId, pagerContainerId, items, page, section, showWrongInfo, emptyText) {
   const container = document.getElementById(containerId);
+  const pagerContainer = document.getElementById(pagerContainerId);
   if (!items.length) {
     container.innerHTML = `<p class="hint">${emptyText}</p>`;
-    return;
+    pagerContainer.innerHTML = "";
+    return 0;
   }
-  const shown = items.slice(0, REVIEWLIST_MAX);
+  const totalPages = Math.max(1, Math.ceil(items.length / REVIEWLIST_PAGE_SIZE));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const start = clampedPage * REVIEWLIST_PAGE_SIZE;
+  const shown = items.slice(start, start + REVIEWLIST_PAGE_SIZE);
   const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, showWrongInfo)).join("");
-  const note = items.length > REVIEWLIST_MAX
-    ? `<p class="hint">僅顯示前 ${REVIEWLIST_MAX} 筆（共 ${items.length} 筆）。</p>`
-    : "";
-  container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>${note}`;
+  container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>`;
+  pagerContainer.innerHTML = buildPagerHtml(section, clampedPage, totalPages, items.length);
+  return clampedPage;
+}
+
+function buildPagerHtml(section, page, totalPages, totalCount) {
+  if (totalPages <= 1) return "";
+  return `
+    <div class="row pager">
+      <button type="button" class="pager-btn" data-section="${section}" data-dir="-1" ${page <= 0 ? "disabled" : ""}>‹ 上一頁</button>
+      <span class="muted">第 ${page + 1} / ${totalPages} 頁（共 ${totalCount} 筆）</span>
+      <button type="button" class="pager-btn" data-section="${section}" data-dir="1" ${page >= totalPages - 1 ? "disabled" : ""}>下一頁 ›</button>
+    </div>`;
 }
 
 function reviewListPool() {
@@ -807,33 +829,51 @@ function reviewListPool() {
 function renderReviewList() {
   const pool = reviewListPool();
   const cats = Logic.categorizeWords(pool, progressStore);
+  const search = reviewListSearch.trim().toLowerCase();
 
-  const toItems = (words) => words.map((w) => ({
-    detail: Logic.computeWordDetail(w, progressStore),
-    lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
-  }));
+  const toItems = (words) => words
+    .filter((w) => !search || w.word.toLowerCase().includes(search))
+    .map((w) => ({
+      detail: Logic.computeWordDetail(w, progressStore),
+      lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
+    }));
 
   const incorrectItems = sortReviewListItems(toItems(cats.incorrect), reviewListIncorrectSort);
-  renderReviewCategory("reviewlist-incorrect", incorrectItems, true, "目前沒有答錯待複習的單字，太厲害了！");
+  reviewListIncorrectPage = renderReviewCategory(
+    "reviewlist-incorrect", "reviewlist-incorrect-pager", incorrectItems, reviewListIncorrectPage, "incorrect", true,
+    search ? "沒有符合搜尋的答錯單字。" : "目前沒有答錯待複習的單字，太厲害了！"
+  );
   document.getElementById("reviewlist-incorrect-count").textContent = incorrectItems.length;
 
   const learningItems = sortReviewListItems(toItems(cats.learning), reviewListLearningSort);
-  renderReviewCategory("reviewlist-learning", learningItems, false, "目前沒有學習中的單字，去做幾回合單字測驗吧！");
+  reviewListLearningPage = renderReviewCategory(
+    "reviewlist-learning", "reviewlist-learning-pager", learningItems, reviewListLearningPage, "learning", false,
+    search ? "沒有符合搜尋的學習中單字。" : "目前沒有學習中的單字，去做幾回合單字測驗吧！"
+  );
   document.getElementById("reviewlist-learning-count").textContent = learningItems.length;
 }
 
+document.getElementById("reviewlist-search").addEventListener("input", (e) => {
+  reviewListSearch = e.target.value;
+  reviewListIncorrectPage = 0;
+  reviewListLearningPage = 0;
+  renderReviewList();
+});
+
 document.getElementById("reviewlist-incorrect-sort").addEventListener("change", (e) => {
   reviewListIncorrectSort = e.target.value;
+  reviewListIncorrectPage = 0;
   renderReviewList();
 });
 
 document.getElementById("reviewlist-learning-sort").addEventListener("change", (e) => {
   reviewListLearningSort = e.target.value;
+  reviewListLearningPage = 0;
   renderReviewList();
 });
 
 // Delegated so it keeps working across re-renders: play a word's
-// pronunciation, or toggle its Chinese meaning open/closed.
+// pronunciation, toggle its Chinese meaning open/closed, or page a list.
 document.getElementById("view-reviewlist").addEventListener("click", (e) => {
   const playBtn = e.target.closest(".card-play-btn");
   if (playBtn) {
@@ -844,6 +884,17 @@ document.getElementById("view-reviewlist").addEventListener("click", (e) => {
   if (dictBtn) {
     const zhDiv = dictBtn.closest(".word-card").querySelector(".row-zh");
     if (zhDiv) zhDiv.classList.toggle("hidden");
+    return;
+  }
+  const pagerBtn = e.target.closest(".pager-btn");
+  if (pagerBtn) {
+    const dir = Number(pagerBtn.dataset.dir);
+    if (pagerBtn.dataset.section === "incorrect") {
+      reviewListIncorrectPage = Math.max(0, reviewListIncorrectPage + dir);
+    } else {
+      reviewListLearningPage = Math.max(0, reviewListLearningPage + dir);
+    }
+    renderReviewList();
   }
 });
 
