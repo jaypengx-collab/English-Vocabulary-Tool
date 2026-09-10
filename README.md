@@ -1,5 +1,7 @@
 # 高中英文參考詞彙表 Level 4–6 練習工具
 
+🔗 **線上使用：[jaypengx-collab.github.io/English-Vocabulary-Tool](https://jaypengx-collab.github.io/English-Vocabulary-Tool/)**
+
 一個純前端（無需安裝、無需伺服器）的英文單字聽力與複習工具，內建大學入學考試中心（大考中心）
 「高中英文參考詞彙表」（108 課綱）Level 4、5、6，共 3,060 個單字。
 
@@ -18,8 +20,8 @@
 
 ## 使用方式
 
-直接開啟部署好的 GitHub Pages 網址即可，無需登入、無需安裝任何東西。建議使用 Chrome、
-Edge 或 Safari 以獲得較自然的英文語音。
+直接開啟 [線上網址](https://jaypengx-collab.github.io/English-Vocabulary-Tool/) 即可，無需登入、
+無需安裝任何東西。建議使用 Chrome、Edge 或 Safari 以獲得較自然的英文語音。
 
 ## 本機開發
 
