@@ -101,6 +101,17 @@ test("cold start: early attempts rely more on correctness than timing", () => {
   assert.ok(info.score > 0, "correctness alone still moves the score off zero");
 });
 
+test("a consistently correct, fast, stable word can reach Memorized within a handful of attempts (not a long grind)", () => {
+  const h = L.createEmptyWordHistory("quick", 4, 5);
+  play(h, [
+    { correct: true, responseMs: 900 }, { correct: true, responseMs: 910 },
+    { correct: true, responseMs: 890 }, { correct: true, responseMs: 905 },
+  ]);
+  const info = L.calculateMemorizationScore(h);
+  assert.equal(h.attempts, 4);
+  assert.equal(info.state, "memorized", "4 solid attempts should be enough - repetition needed to reach Memorized was intentionally lowered");
+});
+
 test("timing's influence ramps up only as more timed data accumulates", () => {
   const sparse = L.createEmptyWordHistory("sparse", 4, 6);
   play(sparse, [{ correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 }]);
@@ -340,6 +351,89 @@ test("selectTestQuestions prioritizes lower-scoring (weaker) words within the pr
   // this just verifies rankCandidates ordering doesn't crash and includes the weaker word.
   const words = selection.map((w) => w.word);
   assert.ok(words.includes(weak.word));
+});
+
+/* ================= Weighted (not rigid) review selection ================= */
+
+test("reviewPriorityWeight gives a weaker word a much higher weight than a strong one", () => {
+  const now = 1000000;
+  const weakInfo = { score: 0.1 };
+  const strongInfo = { score: 0.9 };
+  const weakWeight = L.reviewPriorityWeight(weakInfo, now - 5 * 24 * 60 * 60 * 1000, now);
+  const strongWeight = L.reviewPriorityWeight(strongInfo, now - 5 * 24 * 60 * 60 * 1000, now);
+  assert.ok(weakWeight > strongWeight * 3, `weak word should dominate the weighting (weak=${weakWeight}, strong=${strongWeight})`);
+});
+
+test("reviewPriorityWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
+  const now = 1000000;
+  const info = { score: 0.3 };
+  const justTested = L.reviewPriorityWeight(info, now - 1000, now);
+  const testedDaysAgo = L.reviewPriorityWeight(info, now - 10 * 24 * 60 * 60 * 1000, now);
+  assert.ok(testedDaysAgo > justTested, "a word tested moments ago should be less eager to repeat than the same word tested days ago");
+});
+
+test("weightedShuffle picks the higher-weight item first far more often than chance, but not every single time", () => {
+  const items = ["weak", "strong"];
+  const weights = [1.0, 0.05];
+  // One generator reused across all trials (not reseeded per trial): a
+  // freshly-seeded LCG's very first draw is biased toward 0 for small
+  // sequential seeds, which would otherwise skew a test this sensitive
+  // (only 2 draws happen per weightedShuffle call).
+  const rnd = seededRandom(42);
+  let weakFirstCount = 0;
+  const trials = 300;
+  for (let i = 0; i < trials; i++) {
+    const ordered = L.weightedShuffle(items, weights, rnd);
+    if (ordered[0] === "weak") weakFirstCount += 1;
+  }
+  const rate = weakFirstCount / trials;
+  assert.ok(rate > 0.8, `weak item should win the vast majority of draws (rate=${rate})`);
+  assert.ok(rate < 1, "it should not be a rigid, deterministic guarantee every single trial");
+});
+
+test("selectTestQuestions' incorrect-bucket slot favors the weaker of two candidates roughly in proportion to weight, not all-or-nothing", () => {
+  const historyStore = {};
+  // Plenty of unseen filler so the "new" bucket can absorb any
+  // redistribution deficit instead of it spilling into the incorrect
+  // bucket and forcing both candidates in regardless of weighting.
+  const filler = makePool(30, 4, "fill");
+  const words = makePool(2, 4, "ic");
+  const weak = words[0];
+  const strong = words[1];
+
+  const weakHist = L.createEmptyWordHistory(weak.word, 4, weak.word.length);
+  play(weakHist, [{ correct: false }]); // attempts=1, correct=0 -> low score
+  historyStore[weak.word.toLowerCase()] = weakHist;
+
+  const strongHist = L.createEmptyWordHistory(strong.word, 4, strong.word.length);
+  // Mostly correct history, but most recent answer was wrong (still lands
+  // in the "incorrect" bucket) - much higher score than `weak` even so.
+  play(strongHist, [
+    { correct: true }, { correct: true }, { correct: true },
+    { correct: true }, { correct: true }, { correct: false },
+  ]);
+  historyStore[strong.word.toLowerCase()] = strongHist;
+
+  const pool = filler.concat([weak, strong]);
+  // size=10 -> new target=8, incorrect target=1, correct target=1 (no
+  // correct-bucket candidates exist, so that slot redistributes into the
+  // 30-word-deep "new" bucket rather than forcing the second incorrect
+  // candidate in) - the incorrect bucket's single slot is a genuine choice
+  // between exactly `weak` and `strong` each trial.
+  const rnd = seededRandom(42); // one generator reused across trials - see note above
+  let weakPicked = 0;
+  const trials = 400;
+  for (let i = 0; i < trials; i++) {
+    const selection = L.selectTestQuestions({ pool: pool, historyStore: historyStore, size: 10, random: rnd });
+    const picked = L.categorizeWords(selection, historyStore).prevIncorrect[0];
+    assert.ok(picked, "the incorrect bucket's one slot should always be filled here");
+    if (picked.word === weak.word) weakPicked += 1;
+  }
+  const rate = weakPicked / trials;
+  // Not a guarantee (that would be the old rigid always-pick-the-weakest
+  // behavior) but a clear, large lean toward the weaker word.
+  assert.ok(rate > 0.7, `weaker word should win most of the time (rate=${rate})`);
+  assert.ok(rate < 1, "the stronger word should still occasionally get picked - not a rigid cutoff");
 });
 
 /* ================= Review Test ================= */

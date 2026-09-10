@@ -30,13 +30,18 @@
     maxRecentAttempts: 12,
 
     // Attempts needed before "enough observations" confidence reaches 1.0.
-    minObservationsForFullConfidence: 6,
+    // Kept low deliberately: only ~20% of each test round revisits
+    // previously-seen words (see testRatio below), so any single word gets
+    // re-tested infrequently - requiring many repeats before confidence
+    // builds would leave most words stuck looking "unmemorized" for a long
+    // time regardless of how well they're actually known.
+    minObservationsForFullConfidence: 4,
 
     // Need at least this many timed correct answers before timing
     // contributes to the score at all (cold start relies on correctness).
     minCorrectTimedForTimingSignal: 2,
     // Timing's influence ramps up to its max as timed samples approach this.
-    timingWeightFullAt: 5,
+    timingWeightFullAt: 4,
     // Timing can never account for more than this fraction of the blended
     // pre-confidence score - correctness always dominates.
     maxTimingInfluence: 0.35,
@@ -52,7 +57,7 @@
     // A word cannot reach "memorized" on score alone - it must also clear
     // this cold-start guard, so one lucky fast/correct answer can't do it.
     memorizedGuard: {
-      minAttempts: 4,
+      minAttempts: 3,
       minCorrectStreak: 2,
       maxRecentErrorRate: 0.2,
     },
@@ -63,10 +68,21 @@
     defaultTestSize: 80,
     testRatio: { new: 0.8, incorrect: 0.1, correct: 0.1 },
 
+    // How strongly a weaker/less-memorized word's review-selection weight
+    // grows relative to a stronger one (see reviewPriorityWeight). Higher
+    // = weak words dominate the weighted draw even more.
+    reviewWeaknessFloor: 0.05,
+    // A word tested very recently is down-weighted for a little while so
+    // review slots don't just cycle the same one or two words every round;
+    // its weight recovers back to normal over this many days.
+    reviewRecencyFullRecoveryDays: 3,
+
     // Window (most-recent attempts, across all words) used for "recent
     // performance" / response-time-trend reporting in Progress.
     recentPerformanceWindow: 30,
   };
+
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
   /* ---------- Small numeric helpers ---------- */
 
@@ -97,6 +113,38 @@
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  // Weighted random ordering (Efraimidis-Spirakis A-ExpJ scheme): each item
+  // gets a random key = u^(1/weight) for u in (0,1); sorting keys
+  // descending yields a full permutation where higher-weight items tend to
+  // land earlier, but never deterministically - a weak word doesn't always
+  // win the same slot every round, a stronger one occasionally still gets
+  // picked, and which specific word "wins" shifts as weights change after
+  // each attempt. This is what makes review selection a probabilistic
+  // ranking rather than a rigid "always exactly the top N" cutoff.
+  function weightedShuffle(items, weights, random) {
+    const rnd = random || Math.random;
+    return items
+      .map((item, i) => {
+        const w = Math.max(1e-6, weights[i]);
+        const u = Math.min(1 - 1e-12, Math.max(1e-12, rnd()));
+        return { item: item, key: Math.pow(u, 1 / w) };
+      })
+      .sort((a, b) => b.key - a.key)
+      .map((x) => x.item);
+  }
+
+  // How urgently a previously-seen word deserves a review slot: much
+  // higher for weaker/less-memorized words, and temporarily suppressed
+  // right after it was just tested so the same one or two words don't
+  // monopolize every round while their weakness score hasn't caught up
+  // yet. Purely a *weight* for weightedShuffle, not a hard cutoff.
+  function reviewPriorityWeight(scoreInfo, lastSeen, now) {
+    const weakness = clamp(1.05 - scoreInfo.score, CONFIG.reviewWeaknessFloor, 1.05);
+    const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
+    const recencyFactor = clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
+    return weakness * recencyFactor;
   }
 
   /* ---------- Per-word historical data ---------- */
@@ -359,39 +407,35 @@
     return { new: newTarget, incorrect: incorrectTarget, correct: correctTarget };
   }
 
-  function rankCandidates(words, historyStore, random, category) {
-    const shuffled = shuffle(words, random);
-    if (category === "new") return shuffled;
+  // Orders candidates for a bucket. "new" words have no history to rank
+  // by, so a plain shuffle is enough. "incorrect"/"correct" (retention
+  // check) words are ordered by a WEIGHTED random draw rather than a
+  // deterministic sort: a weak/stale word is far more likely to land in
+  // the taken-first slots, but it's not guaranteed the exact same word
+  // every round - as its own score improves (or another word's does), the
+  // odds shift and a different word is likely to surface next time.
+  function rankCandidates(words, historyStore, random, category, now) {
+    if (category === "new") return shuffle(words, random);
 
-    const withMeta = shuffled.map((w) => {
+    const withMeta = words.map((w) => {
       const h = historyFor(historyStore, w.word) || {};
       const scoreInfo = calculateMemorizationScore(h);
-      return { w: w, score: scoreInfo.score, lastSeen: h.lastSeen || 0, attempts: h.attempts || 0 };
+      return { w: w, weight: reviewPriorityWeight(scoreInfo, h.lastSeen || 0, now) };
     });
-
-    if (category === "incorrect") {
-      // Weaker/less-memorized words first; among equally weak words,
-      // whichever was tested longer ago goes first.
-      withMeta.sort((a, b) => (a.score - b.score) || (a.lastSeen - b.lastSeen));
-    } else {
-      // Retention check: less-recently-tested first, then more-recently-
-      // learned (fewer attempts) words first, since those are the ones
-      // whose retention is least proven.
-      withMeta.sort((a, b) => (a.lastSeen - b.lastSeen) || (a.attempts - b.attempts));
-    }
-    return withMeta.map((x) => x.w);
+    return weightedShuffle(withMeta.map((x) => x.w), withMeta.map((x) => x.weight), random);
   }
 
   // Builds the regular Vocabulary Test question list: 80% new/unseen, 10%
   // previously-incorrect, 10% previously-correct (retention check) by
   // default, redistributing missing slots intelligently when a category
-  // runs short, never duplicating a word, and preferring less-recently-
-  // tested / higher-priority words within each category.
+  // runs short, never duplicating a word, and giving weaker/staler words a
+  // much higher (but not guaranteed) chance of filling the review slots.
   function selectTestQuestions(opts) {
     const o = opts || {};
     const pool = o.pool || [];
     const historyStore = o.historyStore || {};
     const random = o.random || Math.random;
+    const now = typeof o.now === "number" ? o.now : Date.now();
     const totalAvailable = pool.length;
     let size = typeof o.size === "number" && o.size > 0 ? o.size : CONFIG.defaultTestSize;
     size = Math.min(size, totalAvailable);
@@ -401,9 +445,9 @@
     const targets = computeTestTargets(size);
 
     const buckets = [
-      { key: "new", ranked: rankCandidates(unseen, historyStore, random, "new"), target: targets.new },
-      { key: "incorrect", ranked: rankCandidates(prevIncorrect, historyStore, random, "incorrect"), target: targets.incorrect },
-      { key: "correct", ranked: rankCandidates(prevCorrect, historyStore, random, "correct"), target: targets.correct },
+      { key: "new", ranked: rankCandidates(unseen, historyStore, random, "new", now), target: targets.new },
+      { key: "incorrect", ranked: rankCandidates(prevIncorrect, historyStore, random, "incorrect", now), target: targets.incorrect },
+      { key: "correct", ranked: rankCandidates(prevCorrect, historyStore, random, "correct", now), target: targets.correct },
     ];
 
     const taken = {};
@@ -565,6 +609,8 @@
     average: average,
     stddev: stddev,
     shuffle: shuffle,
+    weightedShuffle: weightedShuffle,
+    reviewPriorityWeight: reviewPriorityWeight,
     createEmptyWordHistory: createEmptyWordHistory,
     migrateWordEntry: migrateWordEntry,
     migrateProgressStore: migrateProgressStore,
