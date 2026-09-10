@@ -259,6 +259,7 @@ function showView(name) {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
   if (name === "progress") renderProgress();
+  if (name === "reviewlist") renderReviewList();
 }
 
 document.getElementById("tabs").addEventListener("click", (e) => {
@@ -684,6 +685,113 @@ document.getElementById("rev-again-btn").addEventListener("click", () => {
   document.getElementById("start-review-btn").click();
 });
 document.getElementById("rev-home-btn").addEventListener("click", () => showView("home"));
+
+/* ---------- Review List (browsable Learning / Incorrect words) ---------- */
+
+const REVIEWLIST_MAX = 150;
+let reviewListLearningSort = "slow";
+
+function sortReviewListLearning(items, mode) {
+  const arr = items.slice();
+  switch (mode) {
+    case "streak":
+      arr.sort((a, b) => a.detail.correctStreak - b.detail.correctStreak);
+      break;
+    case "recent":
+      arr.sort((a, b) => b.lastSeen - a.lastSeen);
+      break;
+    case "oldest":
+      arr.sort((a, b) => a.lastSeen - b.lastSeen);
+      break;
+    case "az":
+      arr.sort((a, b) => a.detail.word.localeCompare(b.detail.word));
+      break;
+    case "slow":
+    default:
+      // Slowest (relative to their own history) first, matching the same
+      // "needs more practice" priority the Review Test uses; words with no
+      // timing data yet sort last.
+      arr.sort((a, b) => (b.detail.avgCorrectResponseMs ?? -1) - (a.detail.avgCorrectResponseMs ?? -1));
+  }
+  return arr;
+}
+
+function buildWordCard(detail, showWrongInfo) {
+  const metaParts = showWrongInfo
+    ? [`已作答 ${detail.attempts} 次`, `平均反應時間 ${formatMs(detail.avgCorrectResponseMs)}`]
+    : [`連續正確 ${detail.correctStreak} / 2`, `平均反應時間 ${formatMs(detail.avgCorrectResponseMs)}`];
+
+  return `
+    <div class="word-card">
+      <div class="word-card-main">
+        <button type="button" class="card-play-btn" data-word="${escapeHtml(detail.word)}" title="播放發音">🔊</button>
+        <span class="word-card-word">${escapeHtml(detail.word)}</span>
+        <span class="muted">${escapeHtml(detail.pos || "")}</span>
+        <span class="word-card-level">Level ${detail.level}</span>
+        <button type="button" class="card-dict-btn" title="顯示／隱藏中文意思">📖</button>
+      </div>
+      <div class="word-card-meta muted">${metaParts.join("　・　")}</div>
+      ${showWrongInfo ? `<div class="word-card-wrong">${renderWrongAnswerCell(detail)}</div>` : ""}
+      <div class="row-zh hidden">${zhLines(detail.zh).map((l) => escapeHtml(l)).join("<br>")}</div>
+    </div>`;
+}
+
+function renderReviewCategory(containerId, items, showWrongInfo, emptyText) {
+  const container = document.getElementById(containerId);
+  if (!items.length) {
+    container.innerHTML = `<p class="hint">${emptyText}</p>`;
+    return;
+  }
+  const shown = items.slice(0, REVIEWLIST_MAX);
+  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, showWrongInfo)).join("");
+  const note = items.length > REVIEWLIST_MAX
+    ? `<p class="hint">僅顯示前 ${REVIEWLIST_MAX} 筆（共 ${items.length} 筆）。</p>`
+    : "";
+  container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>${note}`;
+}
+
+function reviewListPool() {
+  const levels = selectedLevels();
+  return wordsForLevels(levels.length ? levels : [4, 5, 6]);
+}
+
+function renderReviewList() {
+  const pool = reviewListPool();
+  const cats = Logic.categorizeWords(pool, progressStore);
+
+  const toItems = (words) => words.map((w) => ({
+    detail: Logic.computeWordDetail(w, progressStore),
+    lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
+  }));
+
+  const learningItems = sortReviewListLearning(toItems(cats.learning), reviewListLearningSort);
+  renderReviewCategory("reviewlist-learning", learningItems, false, "目前沒有學習中的單字，去做幾回合單字測驗吧！");
+  document.getElementById("reviewlist-learning-count").textContent = learningItems.length;
+
+  const incorrectItems = toItems(cats.incorrect).sort((a, b) => b.lastSeen - a.lastSeen);
+  renderReviewCategory("reviewlist-incorrect", incorrectItems, true, "目前沒有答錯待複習的單字，太厲害了！");
+  document.getElementById("reviewlist-incorrect-count").textContent = incorrectItems.length;
+}
+
+document.getElementById("reviewlist-learning-sort").addEventListener("change", (e) => {
+  reviewListLearningSort = e.target.value;
+  renderReviewList();
+});
+
+// Delegated so it keeps working across re-renders: play a word's
+// pronunciation, or toggle its Chinese meaning open/closed.
+document.getElementById("view-reviewlist").addEventListener("click", (e) => {
+  const playBtn = e.target.closest(".card-play-btn");
+  if (playBtn) {
+    speak(playBtn.dataset.word);
+    return;
+  }
+  const dictBtn = e.target.closest(".card-dict-btn");
+  if (dictBtn) {
+    const zhDiv = dictBtn.closest(".word-card").querySelector(".row-zh");
+    if (zhDiv) zhDiv.classList.toggle("hidden");
+  }
+});
 
 /* ---------- Progress view ---------- */
 

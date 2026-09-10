@@ -468,6 +468,66 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   padding: 0 1px;
 }
 
+.word-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.word-card {
+  background: var(--secondary);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.word-card-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.word-card-word {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.word-card-level {
+  display: inline-block;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.card-play-btn, .card-dict-btn {
+  border: none;
+  background: var(--surface);
+  color: var(--secondary-text);
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  font-size: 0.8rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.card-dict-btn { margin-left: auto; }
+
+.word-card-meta {
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.word-card-wrong {
+  font-size: 0.9rem;
+  margin-top: 6px;
+}
+
 .footer {
   text-align: center;
   color: var(--muted);

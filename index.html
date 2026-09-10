@@ -12,6 +12,7 @@
   <h1>🔊 高中英文參考詞彙表 <span class="muted">Level 4–6</span></h1>
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-view="home">首頁</button>
+    <button class="tab-btn" data-view="reviewlist">複習</button>
     <button class="tab-btn" data-view="progress">學習進度</button>
   </nav>
 </header>
@@ -166,6 +167,28 @@
           <button class="btn secondary" id="rev-home-btn">回首頁</button>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- REVIEW LIST (browsable Learning / Incorrect words, not a quiz) -->
+  <section id="view-reviewlist" class="view">
+    <div class="card">
+      <h2>學習中的單字 <span class="muted">（<span id="reviewlist-learning-count">0</span>）</span></h2>
+      <div class="row">
+        <label for="reviewlist-learning-sort">排序</label>
+        <select id="reviewlist-learning-sort">
+          <option value="slow" selected>反應時間（慢到快，最需要加強優先）</option>
+          <option value="streak">連續正確次數（少到多）</option>
+          <option value="recent">最近練習（新到舊）</option>
+          <option value="oldest">最近練習（舊到新）</option>
+          <option value="az">字母順序 A→Z</option>
+        </select>
+      </div>
+      <div id="reviewlist-learning"></div>
+
+      <h2>答錯待複習 <span class="muted">（<span id="reviewlist-incorrect-count">0</span>）</span></h2>
+      <p class="hint">列出答錯之後正確拼法與你實際打的內容，方便找出自己容易錯在哪裡。</p>
+      <div id="reviewlist-incorrect"></div>
     </div>
   </section>
 
