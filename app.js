@@ -5,28 +5,11 @@
 // when running locally without that build step.
 const APP_VERSION = "__BUILD_VERSION__";
 
-/* ---------- Constants ---------- */
-
-const ONE_DAY = 24 * 60 * 60 * 1000;
-// Leitner-style box -> interval before the word is due again.
-const BOX_INTERVALS_MS = [
-  0,                 // box 0: new / just failed -> due immediately
-  10 * 60 * 1000,    // box 1: 10 minutes
-  ONE_DAY,           // box 2: 1 day
-  3 * ONE_DAY,       // box 3: 3 days
-  7 * ONE_DAY,       // box 4: 7 days
-  16 * ONE_DAY,      // box 5: 16 days (considered "mastered")
-  35 * ONE_DAY,      // box 6: 35 days
-];
-const MAX_BOX = BOX_INTERVALS_MS.length - 1;
-const MASTERED_BOX = 5;
-
-// Response-time model: predicts how long a correct answer "should" take
-// (listening + typing), so an unusually slow-but-correct answer can be
-// treated as shaky knowledge rather than a fully mastered word.
-const DEFAULT_MS_PER_CHAR = 350;
-const FIXED_OVERHEAD_MS = 900;
-const SLOW_RATIO_THRESHOLD = 1.7;
+// All memorization scoring, question-selection ratios, and progress-store
+// migration live in logic.js as pure/DOM-free, unit-tested functions (see
+// tests/logic.test.js). This file only owns storage I/O, DOM rendering,
+// and speech synthesis - see README/section "Architecture" for the split.
+const Logic = window.VocabLogic;
 
 const PROGRESS_KEY = "vocab_progress_v1";
 const SETTINGS_KEY = "vocab_settings_v1";
@@ -50,9 +33,13 @@ function saveJSON(key, value) {
   }
 }
 
+// progressStore: { "word-lowercased" -> word-history object, see
+// logic.js#createEmptyWordHistory }. Migrated below (after vocab loads) so
+// legacy entries from before this rewrite - and any entry missing a field
+// a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], voiceURI: "", rate: 0.9, sessionSize: 20, msPerChar: DEFAULT_MS_PER_CHAR },
+  { levels: [4, 5, 6], voiceURI: "", rate: 0.9, sessionSize: 80 },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -64,72 +51,26 @@ function saveSettings() {
   saveJSON(SETTINGS_KEY, settings);
 }
 
-function getProgress(word) {
-  const key = word.toLowerCase();
+// Fetches (creating if needed) the history entry for a vocab item and
+// records one answer into it. Used by BOTH the Vocabulary Test and the
+// Review Test, so the two modes share one memorization system rather than
+// drifting apart, per the app's design.
+function recordResult(item, correct, responseMs) {
+  const key = item.word.toLowerCase();
   if (!progressStore[key]) {
-    progressStore[key] = { box: 0, due: 0, correct: 0, wrong: 0, lastSeen: 0 };
+    progressStore[key] = Logic.createEmptyWordHistory(item.word, item.level, item.word.length);
   }
-  return progressStore[key];
-}
-
-function getDue(word) {
-  const p = progressStore[word.toLowerCase()];
-  return p ? p.due : 0;
-}
-
-// How long a correct answer "should" take to type, given the word's
-// length and how fast this user has been typing correct answers so far.
-function expectedResponseTimeMs(word) {
-  return FIXED_OVERHEAD_MS + settings.msPerChar * word.length;
-}
-
-// Nudges the learned typing speed baseline toward this sample. Only called
-// for correct answers, and outliers (e.g. the user walked away) are capped
-// so one distracted answer can't wreck the baseline.
-function updateTypingSpeed(word, elapsedMs) {
-  const capped = Math.min(elapsedMs, expectedResponseTimeMs(word) * 4);
-  const perChar = capped / Math.max(3, word.length);
-  settings.msPerChar = settings.msPerChar * 0.85 + perChar * 0.15;
-  saveSettings();
-}
-
-function recordDictationResult(word, correct, slow) {
-  const p = getProgress(word);
-  if (correct) {
-    p.correct += 1;
-    if (slow) {
-      // Correct, but took much longer than expected: recall was shaky, so
-      // don't advance the box - keep the same (shorter) review interval
-      // instead of pushing this word further away.
-    } else {
-      p.box = Math.min(MAX_BOX, p.box + 1);
-    }
-  } else {
-    p.box = 0;
-    p.wrong += 1;
-  }
-  p.due = Date.now() + BOX_INTERVALS_MS[p.box];
-  p.lastSeen = Date.now();
+  const history = progressStore[key];
+  const priorAvg = history.avgCorrectResponseMs;
+  Logic.recordAttempt(history, {
+    correct: correct,
+    responseMs: responseMs,
+    timestamp: Date.now(),
+    level: item.level,
+    length: item.word.length,
+  });
   saveProgress();
-}
-
-function recordReviewGrade(word, grade) {
-  const p = getProgress(word);
-  if (grade === "again") {
-    p.box = 0;
-    p.wrong += 1;
-  } else if (grade === "hard") {
-    p.wrong += 1;
-  } else if (grade === "good") {
-    p.box = Math.min(MAX_BOX, p.box + 1);
-    p.correct += 1;
-  } else if (grade === "easy") {
-    p.box = Math.min(MAX_BOX, p.box + 2);
-    p.correct += 1;
-  }
-  p.due = Date.now() + BOX_INTERVALS_MS[p.box];
-  p.lastSeen = Date.now();
-  saveProgress();
+  return { history: history, priorAvg: priorAvg };
 }
 
 /* ---------- Vocabulary data ---------- */
@@ -141,10 +82,19 @@ async function loadVocab() {
   const res = await fetch("data/vocab.json?v=__BUILD_VERSION__");
   VOCAB = await res.json();
   VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
+  const vocabIndex = {};
   for (const w of VOCAB) {
     VOCAB_BY_LEVEL[w.level].push(w);
+    vocabIndex[w.word.toLowerCase()] = { word: w.word, level: w.level };
   }
   document.getElementById("footer-total").textContent = VOCAB.length;
+
+  // Backward-compatible migration: upgrades legacy Leitner-box entries (and
+  // fills in any newly-added fields on already-current entries) without
+  // resetting existing progress. Safe to run on every load - it's a no-op
+  // merge once everything is already in the current shape.
+  progressStore = Logic.migrateProgressStore(progressStore, vocabIndex);
+  saveProgress();
 }
 
 function selectedLevels() {
@@ -157,39 +107,6 @@ function wordsForLevels(levels) {
   let pool = [];
   for (const lvl of levels) pool = pool.concat(VOCAB_BY_LEVEL[lvl] || []);
   return pool;
-}
-
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-function buildSession(pool, size) {
-  const now = Date.now();
-  // Shuffle before sorting: words with the same due time (e.g. everything
-  // is "due" the first time you ever open the app) would otherwise keep
-  // the list's original order - alphabetical, one level at a time - since
-  // Array.prototype.sort is stable. Shuffling first makes ties (and so the
-  // level mix and the pick order) random instead.
-  const withDue = shuffle(pool).map((w) => ({ w, due: getDue(w.word) }));
-  withDue.sort((a, b) => a.due - b.due);
-  const due = withDue.filter((x) => x.due <= now).map((x) => x.w);
-  const notDue = withDue.filter((x) => x.due > now).map((x) => x.w);
-
-  let list;
-  if (!size) {
-    list = due.concat(notDue);
-  } else {
-    list = due.slice(0, size);
-    if (list.length < size) {
-      list = list.concat(notDue.slice(0, size - list.length));
-    }
-  }
-  return shuffle(list);
 }
 
 /* ---------- Chinese meaning rendering ---------- */
@@ -208,14 +125,6 @@ function buildZhBlock(zh) {
     div.appendChild(document.createTextNode(line));
   });
   return div;
-}
-
-function fillZhInto(el, zh) {
-  el.innerHTML = "";
-  zhLines(zh).forEach((line, i) => {
-    if (i > 0) el.appendChild(document.createElement("br"));
-    el.appendChild(document.createTextNode(line));
-  });
 }
 
 // A clickable chip that reveals a word's Chinese meaning on tap - used in
@@ -307,7 +216,7 @@ function showView(name) {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
-  if (name === "stats") renderStats();
+  if (name === "progress") renderProgress();
 }
 
 document.getElementById("tabs").addEventListener("click", (e) => {
@@ -354,85 +263,32 @@ document.getElementById("session-size").addEventListener("change", (e) => {
   saveSettings();
 });
 
-/* ---------- Dictation mode ---------- */
+/* ---------- Shared quiz mechanics (used by both Vocabulary Test and Review Test) ---------- */
 
-const dict = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0 };
-
-document.getElementById("start-dictation-btn").addEventListener("click", () => {
-  const levels = selectedLevels();
-  if (!levels.length) return;
-  const pool = wordsForLevels(levels);
-  dict.list = buildSession(pool, settings.sessionSize);
-  dict.index = 0;
-  dict.correctCount = 0;
-  dict.missed = [];
-  document.getElementById("dict-summary").classList.add("hidden");
-  document.getElementById("dict-form").classList.remove("hidden");
-  showView("dictation");
-  showDictWord();
-});
-
-function showDictWord() {
-  const total = dict.list.length;
-  const item = dict.list[dict.index];
-  document.getElementById("dict-progress-text").textContent = `${dict.index + 1} / ${total}`;
-  document.getElementById("dict-progress-fill").style.width = `${(dict.index / total) * 100}%`;
-  document.getElementById("dict-level-badge").textContent = `Level ${item.level}`;
-
-  dict.answered = false;
-  const input = document.getElementById("dict-input");
-  input.value = "";
-  input.disabled = false;
-  document.getElementById("dict-submit-btn").disabled = false;
-  document.getElementById("dict-feedback").classList.add("hidden");
-  document.getElementById("dict-next-btn").classList.add("hidden");
-  input.focus();
-
-  dict.wordShownAt = Date.now();
-  speak(item.word);
+// A self-relative note about this attempt's speed vs THIS word's own past
+// average - never a fixed threshold, never a function of word length.
+// `priorAvg` is the word's avgCorrectResponseMs from BEFORE this attempt
+// was recorded, so the comparison is against genuine prior history.
+function speedNote(priorAvg, elapsedMs) {
+  if (priorAvg == null) return null;
+  if (elapsedMs <= priorAvg * 0.85) return { cls: "faster", text: "⚡ 比你這個字平常的速度快！" };
+  if (elapsedMs >= priorAvg * 1.4) return { cls: "slower", text: "🐢 比這個字平常的速度慢一些，可能還沒完全記熟。" };
+  return null;
 }
 
-document.getElementById("dict-play-btn").addEventListener("click", () => {
-  speak(dict.list[dict.index].word);
-});
-document.getElementById("dict-replay-btn").addEventListener("click", () => {
-  speak(dict.list[dict.index].word);
-});
-
-document.getElementById("dict-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (dict.answered) {
-    advanceDictation();
-    return;
-  }
-  const item = dict.list[dict.index];
-  const input = document.getElementById("dict-input");
-  const guess = input.value.trim().toLowerCase();
-  const correct = guess === item.word.toLowerCase();
-
-  const elapsed = Date.now() - dict.wordShownAt;
-  const slow = correct && elapsed > expectedResponseTimeMs(item.word) * SLOW_RATIO_THRESHOLD;
-  if (correct && !slow) updateTypingSpeed(item.word, elapsed);
-
-  recordDictationResult(item.word, correct, slow);
-  dict.answered = true;
-  input.disabled = true;
-
-  const feedback = document.getElementById("dict-feedback");
-  feedback.classList.remove("hidden", "correct", "wrong");
-  feedback.innerHTML = "";
+function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
+  feedbackEl.classList.remove("hidden", "correct", "wrong");
+  feedbackEl.innerHTML = "";
 
   const title = document.createElement("div");
   const answerWord = document.createElement("div");
   answerWord.className = "answer-word";
   if (correct) {
-    dict.correctCount += 1;
-    feedback.classList.add("correct");
+    feedbackEl.classList.add("correct");
     title.textContent = "✅ 正確！";
     answerWord.textContent = `${item.word} `;
   } else {
-    dict.missed.push(item);
-    feedback.classList.add("wrong");
+    feedbackEl.classList.add("wrong");
     title.textContent = `❌ 再加油　你的答案：${guess || "(空白)"}`;
     answerWord.textContent = `正確答案：${item.word} `;
   }
@@ -441,59 +297,127 @@ document.getElementById("dict-form").addEventListener("submit", (e) => {
   posSpan.textContent = item.pos;
   answerWord.appendChild(posSpan);
 
-  feedback.appendChild(title);
-  feedback.appendChild(answerWord);
-  feedback.appendChild(buildZhBlock(item.zh));
+  feedbackEl.appendChild(title);
+  feedbackEl.appendChild(answerWord);
+  feedbackEl.appendChild(buildZhBlock(item.zh));
 
-  if (slow) {
-    const note = document.createElement("div");
-    note.className = "slow-note";
-    note.textContent = "⏱️ 這題你想了比較久才答對，系統判斷你還不夠熟，會讓它提早再出現一次。";
-    feedback.appendChild(note);
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = `speed-note ${note.cls}`;
+    noteEl.textContent = note.text;
+    feedbackEl.appendChild(noteEl);
   }
+}
 
-  const isLast = dict.index === dict.list.length - 1;
-  const nextBtn = document.getElementById("dict-next-btn");
+/* ---------- Vocabulary Test mode ---------- */
+
+const vocabTest = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0 };
+
+document.getElementById("start-test-btn").addEventListener("click", () => {
+  const levels = selectedLevels();
+  if (!levels.length) return;
+  const pool = wordsForLevels(levels);
+  const size = settings.sessionSize && settings.sessionSize > 0 ? settings.sessionSize : pool.length;
+  vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: size });
+  vocabTest.index = 0;
+  vocabTest.correctCount = 0;
+  vocabTest.missed = [];
+  document.getElementById("test-summary").classList.add("hidden");
+  document.getElementById("test-form").classList.remove("hidden");
+  showView("test");
+  showTestWord();
+});
+
+function showTestWord() {
+  const total = vocabTest.list.length;
+  const item = vocabTest.list[vocabTest.index];
+  document.getElementById("test-progress-text").textContent = `${vocabTest.index + 1} / ${total}`;
+  document.getElementById("test-progress-fill").style.width = `${(vocabTest.index / total) * 100}%`;
+  document.getElementById("test-level-badge").textContent = `Level ${item.level}`;
+
+  vocabTest.answered = false;
+  const input = document.getElementById("test-input");
+  input.value = "";
+  input.disabled = false;
+  document.getElementById("test-submit-btn").disabled = false;
+  document.getElementById("test-feedback").classList.add("hidden");
+  document.getElementById("test-next-btn").classList.add("hidden");
+  input.focus();
+
+  vocabTest.wordShownAt = Date.now();
+  speak(item.word);
+}
+
+document.getElementById("test-play-btn").addEventListener("click", () => {
+  speak(vocabTest.list[vocabTest.index].word);
+});
+document.getElementById("test-replay-btn").addEventListener("click", () => {
+  speak(vocabTest.list[vocabTest.index].word);
+});
+
+document.getElementById("test-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (vocabTest.answered) {
+    advanceTest();
+    return;
+  }
+  const item = vocabTest.list[vocabTest.index];
+  const input = document.getElementById("test-input");
+  const guess = input.value.trim().toLowerCase();
+  const correct = guess === item.word.toLowerCase();
+  const elapsed = Date.now() - vocabTest.wordShownAt;
+
+  const { priorAvg } = recordResult(item, correct, elapsed);
+  vocabTest.answered = true;
+  input.disabled = true;
+  if (correct) vocabTest.correctCount += 1;
+  else vocabTest.missed.push(item);
+
+  const note = correct ? speedNote(priorAvg, elapsed) : null;
+  renderAnswerFeedback(document.getElementById("test-feedback"), item, correct, guess, note);
+
+  const isLast = vocabTest.index === vocabTest.list.length - 1;
+  const nextBtn = document.getElementById("test-next-btn");
   nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
   nextBtn.classList.remove("hidden");
 });
 
-document.getElementById("dict-next-btn").addEventListener("click", advanceDictation);
+document.getElementById("test-next-btn").addEventListener("click", advanceTest);
 
-function advanceDictation() {
-  if (dict.index < dict.list.length - 1) {
-    dict.index += 1;
-    showDictWord();
+function advanceTest() {
+  if (vocabTest.index < vocabTest.list.length - 1) {
+    vocabTest.index += 1;
+    showTestWord();
   } else {
-    finishDictation();
+    finishTest();
   }
 }
 
-function finishDictation() {
-  document.getElementById("dict-progress-fill").style.width = "100%";
-  document.getElementById("dict-form").classList.add("hidden");
-  document.getElementById("dict-feedback").classList.add("hidden");
-  document.getElementById("dict-next-btn").classList.add("hidden");
+function finishTest() {
+  document.getElementById("test-progress-fill").style.width = "100%";
+  document.getElementById("test-form").classList.add("hidden");
+  document.getElementById("test-feedback").classList.add("hidden");
+  document.getElementById("test-next-btn").classList.add("hidden");
 
-  const total = dict.list.length;
-  document.getElementById("dict-summary-score").textContent =
-    `答對 ${dict.correctCount} / ${total} 題（${Math.round((dict.correctCount / total) * 100)}%）`;
+  const total = vocabTest.list.length;
+  document.getElementById("test-summary-score").textContent =
+    `答對 ${vocabTest.correctCount} / ${total} 題（${Math.round((vocabTest.correctCount / total) * 100)}%）`;
 
-  const missedDiv = document.getElementById("dict-summary-missed");
+  const missedDiv = document.getElementById("test-summary-missed");
   missedDiv.innerHTML = "";
-  if (dict.missed.length) {
+  if (vocabTest.missed.length) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = "拼錯的單字（點擊查看中文意思）：";
+    p.textContent = "拼錯的單字（點擊查看中文意思，已加入複習測驗清單）：";
     missedDiv.appendChild(p);
     const holder = document.createElement("div");
     missedDiv.appendChild(holder);
-    renderWordChipList(holder, dict.missed);
+    renderWordChipList(holder, vocabTest.missed);
   } else {
     missedDiv.innerHTML = `<p class="hint">全部答對，太厲害了！🎉</p>`;
   }
 
-  const allDiv = document.getElementById("dict-summary-all");
+  const allDiv = document.getElementById("test-summary-all");
   allDiv.innerHTML = "";
   const allP = document.createElement("p");
   allP.className = "hint";
@@ -501,173 +425,306 @@ function finishDictation() {
   allDiv.appendChild(allP);
   const allHolder = document.createElement("div");
   allDiv.appendChild(allHolder);
-  renderWordChipList(allHolder, dict.list);
+  renderWordChipList(allHolder, vocabTest.list);
 
-  document.getElementById("dict-summary").classList.remove("hidden");
+  document.getElementById("test-summary").classList.remove("hidden");
 }
 
-document.getElementById("dict-again-btn").addEventListener("click", () => {
-  document.getElementById("start-dictation-btn").click();
+document.getElementById("test-again-btn").addEventListener("click", () => {
+  document.getElementById("start-test-btn").click();
 });
-document.getElementById("dict-home-btn").addEventListener("click", () => showView("home"));
+document.getElementById("test-home-btn").addEventListener("click", () => showView("home"));
 
-/* ---------- Review mode (flashcards / SRS) ---------- */
+/* ---------- Review Test mode (auto-quizzes the wrong-word list) ---------- */
 
-const rev = { list: [], index: 0, grades: { again: 0, hard: 0, good: 0, easy: 0 } };
+const reviewTest = { list: [], index: 0, records: [], answered: false, wordShownAt: 0 };
 
 document.getElementById("start-review-btn").addEventListener("click", () => {
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
-  rev.list = buildSession(pool, settings.sessionSize);
-  rev.index = 0;
-  rev.grades = { again: 0, hard: 0, good: 0, easy: 0 };
-  document.getElementById("rev-summary").classList.add("hidden");
-  document.getElementById("rev-flashcard").classList.remove("hidden");
-  document.getElementById("rev-reveal-btn").classList.remove("hidden");
+  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore });
+  reviewTest.index = 0;
+  reviewTest.records = [];
+
   showView("review");
-  showRevCard();
+  const empty = document.getElementById("rev-empty");
+  const body = document.getElementById("rev-body");
+  const summary = document.getElementById("rev-summary");
+  summary.classList.add("hidden");
+
+  if (!reviewTest.list.length) {
+    empty.classList.remove("hidden");
+    body.classList.add("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  body.classList.remove("hidden");
+  document.getElementById("rev-form").classList.remove("hidden");
+  showReviewWord();
 });
 
-function showRevCard() {
-  const total = rev.list.length;
-  const item = rev.list[rev.index];
-  document.getElementById("rev-progress-text").textContent = `${rev.index + 1} / ${total}`;
-  document.getElementById("rev-progress-fill").style.width = `${(rev.index / total) * 100}%`;
+document.getElementById("rev-empty-home-btn").addEventListener("click", () => showView("home"));
+
+function showReviewWord() {
+  const total = reviewTest.list.length;
+  const item = reviewTest.list[reviewTest.index];
+  document.getElementById("rev-progress-text").textContent = `${reviewTest.index + 1} / ${total}`;
+  document.getElementById("rev-progress-fill").style.width = `${(reviewTest.index / total) * 100}%`;
   document.getElementById("rev-level-badge").textContent = `Level ${item.level}`;
 
-  document.getElementById("rev-word").textContent = item.word;
-  document.getElementById("rev-pos").textContent = item.pos;
-  fillZhInto(document.getElementById("rev-zh"), item.zh);
-  document.getElementById("rev-word").classList.add("hidden");
-  document.getElementById("rev-pos").classList.add("hidden");
-  document.getElementById("rev-zh").classList.add("hidden");
-  document.getElementById("rev-hint").classList.remove("hidden");
-  document.getElementById("rev-reveal-btn").classList.remove("hidden");
-  document.getElementById("rev-grade-row").classList.add("hidden");
+  reviewTest.answered = false;
+  const input = document.getElementById("rev-input");
+  input.value = "";
+  input.disabled = false;
+  document.getElementById("rev-submit-btn").disabled = false;
+  document.getElementById("rev-feedback").classList.add("hidden");
+  document.getElementById("rev-next-btn").classList.add("hidden");
+  input.focus();
 
+  reviewTest.wordShownAt = Date.now();
   speak(item.word);
 }
 
 document.getElementById("rev-play-btn").addEventListener("click", () => {
-  speak(rev.list[rev.index].word);
+  speak(reviewTest.list[reviewTest.index].word);
+});
+document.getElementById("rev-replay-btn").addEventListener("click", () => {
+  speak(reviewTest.list[reviewTest.index].word);
 });
 
-document.getElementById("rev-reveal-btn").addEventListener("click", () => {
-  document.getElementById("rev-word").classList.remove("hidden");
-  document.getElementById("rev-pos").classList.remove("hidden");
-  document.getElementById("rev-zh").classList.remove("hidden");
-  document.getElementById("rev-hint").classList.add("hidden");
-  document.getElementById("rev-reveal-btn").classList.add("hidden");
-  document.getElementById("rev-grade-row").classList.remove("hidden");
+document.getElementById("rev-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (reviewTest.answered) {
+    advanceReview();
+    return;
+  }
+  const item = reviewTest.list[reviewTest.index];
+  const input = document.getElementById("rev-input");
+  const guess = input.value.trim().toLowerCase();
+  const correct = guess === item.word.toLowerCase();
+  const elapsed = Date.now() - reviewTest.wordShownAt;
+
+  const { priorAvg } = recordResult(item, correct, elapsed);
+  reviewTest.answered = true;
+  input.disabled = true;
+  reviewTest.records.push({ word: item.word, correct: correct, responseMs: elapsed, priorAvg: priorAvg });
+
+  const note = correct ? speedNote(priorAvg, elapsed) : null;
+  renderAnswerFeedback(document.getElementById("rev-feedback"), item, correct, guess, note);
+
+  const isLast = reviewTest.index === reviewTest.list.length - 1;
+  const nextBtn = document.getElementById("rev-next-btn");
+  nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
+  nextBtn.classList.remove("hidden");
 });
 
-document.getElementById("rev-grade-row").addEventListener("click", (e) => {
-  const btn = e.target.closest(".grade");
-  if (!btn) return;
-  const grade = btn.dataset.grade;
-  const item = rev.list[rev.index];
-  recordReviewGrade(item.word, grade);
-  rev.grades[grade] += 1;
+document.getElementById("rev-next-btn").addEventListener("click", advanceReview);
 
-  if (rev.index < rev.list.length - 1) {
-    rev.index += 1;
-    showRevCard();
+function advanceReview() {
+  if (reviewTest.index < reviewTest.list.length - 1) {
+    reviewTest.index += 1;
+    showReviewWord();
   } else {
     finishReview();
   }
-});
+}
 
 function finishReview() {
   document.getElementById("rev-progress-fill").style.width = "100%";
-  document.getElementById("rev-flashcard").classList.add("hidden");
-  document.getElementById("rev-reveal-btn").classList.add("hidden");
-  document.getElementById("rev-grade-row").classList.add("hidden");
+  document.getElementById("rev-body").classList.add("hidden");
 
-  const g = rev.grades;
+  const records = reviewTest.records;
+  const total = records.length;
+  const correctCount = records.filter((r) => r.correct).length;
+  const stillIncorrect = total - correctCount;
+  const accuracy = total ? Math.round((correctCount / total) * 100) : 0;
+
   document.getElementById("rev-summary-score").textContent =
-    `很熟悉 ${g.easy}　記得 ${g.good}　有點難 ${g.hard}　忘記了 ${g.again}`;
+    `共複習 ${total} 題　答對 ${correctCount} 題　仍答錯 ${stillIncorrect} 題　複習正確率 ${accuracy}%`;
+
+  // Response-time change: compare this round's elapsed time against each
+  // word's own PRE-round baseline (priorAvg), for words that had one.
+  const withBaseline = records.filter((r) => r.correct && r.priorAvg != null);
+  let trendText = "尚無足夠的歷史資料可比較反應時間變化。";
+  if (withBaseline.length) {
+    const deltas = withBaseline.map((r) => r.priorAvg - r.responseMs); // positive = faster than before
+    const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+    const improvedCount = deltas.filter((d) => d > 0).length;
+    if (avgDelta > 0) {
+      trendText = `本次答對的單字中，平均反應時間比之前快了約 ${Math.round(avgDelta)} 毫秒（${improvedCount}/${withBaseline.length} 個字進步）。`;
+    } else {
+      trendText = `本次答對的單字中，平均反應時間比之前慢了約 ${Math.round(-avgDelta)} 毫秒，可能需要再多練習幾次。`;
+    }
+  }
+  document.getElementById("rev-summary-trend").textContent = trendText;
 
   const wordsDiv = document.getElementById("rev-summary-words");
   wordsDiv.innerHTML = "";
   const p = document.createElement("p");
   p.className = "hint";
-  p.textContent = "本回合單字（點擊查看中文意思）：";
+  p.textContent = "本回合複習的單字（點擊查看中文意思）：";
   wordsDiv.appendChild(p);
   const holder = document.createElement("div");
   wordsDiv.appendChild(holder);
-  renderWordChipList(holder, rev.list);
+  renderWordChipList(holder, reviewTest.list);
+
+  document.getElementById("rev-outcome-prompt").classList.remove("hidden");
+  document.getElementById("rev-outcome-note").classList.add("hidden");
+  document.getElementById("rev-keep-btn").disabled = false;
+  document.getElementById("rev-remove-btn").disabled = false;
 
   document.getElementById("rev-summary").classList.remove("hidden");
 }
+
+function settleReviewOutcome(mode, noteText) {
+  Logic.applyReviewOutcome(progressStore, reviewTest.records, mode);
+  saveProgress();
+  document.getElementById("rev-outcome-prompt").classList.add("hidden");
+  const note = document.getElementById("rev-outcome-note");
+  note.textContent = noteText;
+  note.classList.remove("hidden");
+  document.getElementById("rev-keep-btn").disabled = true;
+  document.getElementById("rev-remove-btn").disabled = true;
+}
+
+document.getElementById("rev-keep-btn").addEventListener("click", () => {
+  settleReviewOutcome("keepAll", "已保留全部單字在答錯清單中。");
+});
+document.getElementById("rev-remove-btn").addEventListener("click", () => {
+  const removedCount = reviewTest.records.filter((r) => r.correct).length;
+  settleReviewOutcome("removeCorrect", `已將本次答對的 ${removedCount} 個單字從答錯清單移除。`);
+});
 
 document.getElementById("rev-again-btn").addEventListener("click", () => {
   document.getElementById("start-review-btn").click();
 });
 document.getElementById("rev-home-btn").addEventListener("click", () => showView("home"));
 
-/* ---------- Stats view ---------- */
+/* ---------- Progress view ---------- */
 
-function classifyWord(word) {
-  const p = progressStore[word.toLowerCase()];
-  if (!p || p.lastSeen === 0) return "new";
-  return p.box >= MASTERED_BOX ? "mastered" : "learning";
+const STATE_LABELS = { new: "尚未測驗", learning: "學習中", review: "待複習", memorized: "已熟記" };
+
+let progressFilter = "attempted";
+let progressSearch = "";
+const MAX_WORD_ROWS = 300;
+
+document.getElementById("progress-filter").addEventListener("change", (e) => {
+  progressFilter = e.target.value;
+  renderProgress();
+});
+document.getElementById("progress-search").addEventListener("input", (e) => {
+  progressSearch = e.target.value;
+  renderProgress();
+});
+
+function formatMs(ms) {
+  return ms == null ? "—" : `${Math.round(ms)} ms`;
 }
 
-function renderStats() {
-  const now = Date.now();
-  let mastered = 0, learning = 0, brandNew = 0, due = 0;
+function formatPercent(x) {
+  return x == null ? "—" : `${Math.round(x * 100)}%`;
+}
 
-  for (const w of VOCAB) {
-    const cls = classifyWord(w.word);
-    if (cls === "mastered") mastered += 1;
-    else if (cls === "learning") learning += 1;
-    else brandNew += 1;
-    if (getDue(w.word) <= now && progressStore[w.word.toLowerCase()]) due += 1;
-  }
+function renderProgress() {
+  const summary = Logic.computeProgressSummary(VOCAB, progressStore);
 
-  document.getElementById("stats-grid").innerHTML = `
-    <div class="stat-box"><span class="num">${VOCAB.length}</span><span class="label">總單字數</span></div>
-    <div class="stat-box"><span class="num">${mastered}</span><span class="label">已熟記</span></div>
-    <div class="stat-box"><span class="num">${learning}</span><span class="label">學習中</span></div>
-    <div class="stat-box"><span class="num">${brandNew}</span><span class="label">尚未學習</span></div>
-    <div class="stat-box"><span class="num">${due}</span><span class="label">待複習</span></div>
+  document.getElementById("progress-grid").innerHTML = `
+    <div class="stat-box"><span class="num">${summary.totalWords}</span><span class="label">總單字數</span></div>
+    <div class="stat-box"><span class="num">${summary.totalEncountered}</span><span class="label">已練習過</span></div>
+    <div class="stat-box"><span class="num">${summary.counts.memorized}</span><span class="label">已熟記</span></div>
+    <div class="stat-box"><span class="num">${summary.counts.learning}</span><span class="label">學習中</span></div>
+    <div class="stat-box"><span class="num">${summary.counts.review}</span><span class="label">待複習</span></div>
+    <div class="stat-box"><span class="num">${VOCAB.filter((w) => { const h = progressStore[w.word.toLowerCase()]; return h && h.inWrongList; }).length}</span><span class="label">答錯清單</span></div>
+    <div class="stat-box"><span class="num">${formatPercent(summary.overallAccuracy)}</span><span class="label">整體正確率</span></div>
+    <div class="stat-box"><span class="num">${formatPercent(summary.memorizationRate)}</span><span class="label">熟記率</span></div>
+    <div class="stat-box"><span class="num">${formatPercent(summary.recentAccuracy)}</span><span class="label">近期正確率</span></div>
   `;
 
-  document.getElementById("stats-speed-hint").textContent =
-    `聽寫反應速度基準：每個字元約 ${Math.round(settings.msPerChar)} 毫秒（會隨你的作答自動調整）。` +
-    `聽寫時若某題答對但想了明顯比這個基準久，即使答對，該字也會提早再次出現，而不是直接視為已熟記。`;
+  let trendText = "尚無足夠的作答紀錄可分析反應時間趨勢。";
+  if (summary.recentAccuracy != null) {
+    if (summary.responseTimeTrend > 0.05) trendText = "近期反應時間有變快的趨勢，代表越來越熟練。";
+    else if (summary.responseTimeTrend < -0.05) trendText = "近期反應時間有變慢的趨勢，可能需要多複習。";
+    else trendText = "近期反應時間大致穩定。";
+  }
+  document.getElementById("progress-trend-hint").textContent = trendText;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {
-      const words = VOCAB_BY_LEVEL[lvl];
-      let m = 0, l = 0, n = 0;
-      for (const w of words) {
-        const cls = classifyWord(w.word);
-        if (cls === "mastered") m += 1;
-        else if (cls === "learning") l += 1;
-        else n += 1;
-      }
-      const total = words.length || 1;
+      const s = summary.byLevel[lvl] || { total: 0, new: 0, learning: 0, review: 0, memorized: 0 };
+      const total = s.total || 1;
       return `
         <div class="level-stat-row">
-          <div class="level-stat-head"><span>Level ${lvl}</span><span>已熟記 ${m} / ${words.length}</span></div>
+          <div class="level-stat-head"><span>Level ${lvl}</span><span>已熟記 ${s.memorized} / ${s.total}</span></div>
           <div class="level-stat-bar">
-            <div class="seg seg-mastered" style="width:${(m / total) * 100}%"></div>
-            <div class="seg seg-learning" style="width:${(l / total) * 100}%"></div>
-            <div class="seg seg-new" style="width:${(n / total) * 100}%"></div>
+            <div class="seg seg-memorized" style="width:${(s.memorized / total) * 100}%"></div>
+            <div class="seg seg-review" style="width:${(s.review / total) * 100}%"></div>
+            <div class="seg seg-learning" style="width:${(s.learning / total) * 100}%"></div>
+            <div class="seg seg-new" style="width:${(s.new / total) * 100}%"></div>
           </div>
         </div>`;
     })
     .join("");
-  document.getElementById("stats-levels").innerHTML = levelsHTML;
+  document.getElementById("progress-levels").innerHTML = levelsHTML;
+
+  renderWordTable();
+}
+
+function renderWordTable() {
+  const search = progressSearch.trim().toLowerCase();
+  const details = [];
+  for (const w of VOCAB) {
+    const history = progressStore[w.word.toLowerCase()];
+    const attempted = !!(history && history.attempts);
+    if (progressFilter === "attempted" && !attempted) continue;
+    if (progressFilter !== "all" && progressFilter !== "attempted") {
+      const state = Logic.classifyState(history || {});
+      if (state !== progressFilter) continue;
+    }
+    if (search && !w.word.toLowerCase().includes(search)) continue;
+    details.push({ detail: Logic.computeWordDetail(w, progressStore), lastSeen: history ? history.lastSeen || 0 : 0 });
+  }
+  details.sort((a, b) => b.lastSeen - a.lastSeen);
+
+  const container = document.getElementById("progress-word-table");
+  if (!details.length) {
+    container.innerHTML = `<p class="hint">沒有符合條件的單字。</p>`;
+    return;
+  }
+
+  const shown = details.slice(0, MAX_WORD_ROWS);
+  const rows = shown
+    .map(({ detail }) => `
+      <tr>
+        <td class="word-cell">${detail.word}${detail.inWrongList ? ' <span class="wrong-flag" title="在答錯清單中">⚠️</span>' : ""}</td>
+        <td>${detail.level}</td>
+        <td>${detail.correct} / ${detail.incorrect}</td>
+        <td>${formatMs(detail.avgCorrectResponseMs)}</td>
+        <td>${formatPercent(detail.score)}</td>
+        <td><span class="state-badge ${detail.state}">${STATE_LABELS[detail.state]}</span></td>
+      </tr>`)
+    .join("");
+
+  const truncatedNote = details.length > MAX_WORD_ROWS
+    ? `<p class="hint">僅顯示前 ${MAX_WORD_ROWS} 筆（共 ${details.length} 筆符合條件），請用搜尋縮小範圍。</p>`
+    : "";
+
+  container.innerHTML = `
+    <div class="word-table-wrap">
+      <table class="word-table">
+        <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th>平均反應時間</th><th>記憶分數</th><th>狀態</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    ${truncatedNote}
+  `;
 }
 
 document.getElementById("reset-progress-btn").addEventListener("click", () => {
   if (confirm("確定要清除全部學習紀錄嗎？此動作無法復原。")) {
     progressStore = {};
     saveProgress();
-    renderStats();
+    renderProgress();
   }
 });
 
