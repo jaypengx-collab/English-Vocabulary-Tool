@@ -40,24 +40,38 @@
         <span class="hint" id="test-voice-word"></span>
       </div>
 
-      <h2>開始練習</h2>
-      <div class="row">
-        <label for="session-size">單字測驗題數</label>
-        <input type="number" id="session-size" min="0" max="3060" step="1" value="80" />
+      <h2>選擇模式</h2>
+      <div class="level-picker" id="mode-picker">
+        <label class="level-chip"><input type="radio" name="mode" value="test" checked><span>📝 單字測驗</span></label>
+        <label class="level-chip"><input type="radio" name="mode" value="review"><span>🔁 複習測驗</span></label>
       </div>
-      <div class="row" id="session-size-presets">
-        <button type="button" class="btn secondary small" data-size="10">10</button>
-        <button type="button" class="btn secondary small" data-size="20">20</button>
-        <button type="button" class="btn secondary small" data-size="50">50</button>
-        <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
-        <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+
+      <div id="test-mode-settings">
+        <h2>開始練習</h2>
+        <div class="row">
+          <label for="session-size">單字測驗題數</label>
+          <input type="number" id="session-size" min="0" max="3060" step="1" value="80" />
+        </div>
+        <div class="row" id="session-size-presets">
+          <button type="button" class="btn secondary small" data-size="10">10</button>
+          <button type="button" class="btn secondary small" data-size="20">20</button>
+          <button type="button" class="btn secondary small" data-size="50">50</button>
+          <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
+          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        </div>
+        <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 曾經答錯、10% 曾經答對（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。播放單字發音，輸入拼字，立即核對，並記錄每一題的作答資料。</p>
+        <div class="row actions">
+          <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
+        </div>
       </div>
-      <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 曾經答錯、10% 曾經答對（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。</p>
-      <div class="row actions">
-        <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
-        <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
+
+      <div id="review-mode-settings" class="hidden">
+        <h2>開始練習</h2>
+        <p class="hint">複習測驗會自動從「答錯清單」出題（在單字測驗中答錯的單字），不需要設定題數。回合結束後會顯示這次的正確率與反應時間變化，並可選擇是否把這次答對的單字從答錯清單移除。</p>
+        <div class="row actions">
+          <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
+        </div>
       </div>
-      <p class="hint">單字測驗：播放單字發音，輸入拼字，立即核對，並記錄每一題的作答資料。<br>複習測驗：自動從「答錯清單」出題，回合結束後可選擇是否把這次答對的單字從答錯清單移除。</p>
     </div>
   </section>
 

@@ -278,6 +278,17 @@ document.getElementById("level-picker").addEventListener("change", (e) => {
   updateLevelHint();
 });
 
+// Vocabulary Test and Review Test are two peer modes the user picks
+// between on the home screen (each only starts via its own button here -
+// see the note on start-test-btn/start-review-btn for why there's no top
+// nav tab for either). Switching modes just swaps which settings/start
+// button are visible; it doesn't touch either mode's in-progress state.
+document.getElementById("mode-picker").addEventListener("change", (e) => {
+  const mode = e.target.value;
+  document.getElementById("test-mode-settings").classList.toggle("hidden", mode !== "test");
+  document.getElementById("review-mode-settings").classList.toggle("hidden", mode !== "review");
+});
+
 document.getElementById("rate-select").addEventListener("input", (e) => {
   settings.rate = Number(e.target.value);
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
