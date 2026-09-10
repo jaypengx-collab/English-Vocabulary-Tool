@@ -39,7 +39,7 @@ function saveJSON(key, value) {
 // a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], voiceURI: "", rate: 0.9, sessionSize: 80 },
+  { levels: [4, 5, 6], rate: 0.9, sessionSize: 80 },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -166,31 +166,33 @@ function renderWordChipList(containerEl, items) {
 
 /* ---------- Text to speech ---------- */
 
-let voices = [];
+// Only ever used as a fallback (see speak() below), so there is nothing to
+// expose in the UI: whenever the browser's voice list changes, silently
+// pick the single best-available English voice instead of asking the user
+// to choose among dozens of inconsistent OS/browser voices.
+let fallbackVoice = null;
+
+function pickBestVoice(list) {
+  if (!list.length) return null;
+  // Prefer higher-quality "Natural"/"Online" neural voices when the
+  // browser exposes them (Edge/Chrome on Windows commonly do), then any
+  // US English voice, then any English voice, then whatever's first.
+  const rules = [
+    (v) => /en-US/i.test(v.lang) && /natural|online|neural/i.test(v.name),
+    (v) => /^en/i.test(v.lang) && /natural|online|neural/i.test(v.name),
+    (v) => /en-US/i.test(v.lang),
+    (v) => /^en/i.test(v.lang),
+  ];
+  for (const matches of rules) {
+    const found = list.find(matches);
+    if (found) return found;
+  }
+  return list[0];
+}
 
 function refreshVoices() {
-  voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
-  const select = document.getElementById("voice-select");
-  const prev = settings.voiceURI;
-  select.innerHTML = "";
-
-  const englishVoices = voices.filter((v) => v.lang && v.lang.toLowerCase().startsWith("en"));
-  const list = englishVoices.length ? englishVoices : voices;
-
-  for (const v of list) {
-    const opt = document.createElement("option");
-    opt.value = v.voiceURI;
-    opt.textContent = `${v.name} (${v.lang})`;
-    select.appendChild(opt);
-  }
-
-  if (prev && list.some((v) => v.voiceURI === prev)) {
-    select.value = prev;
-  } else if (list.length) {
-    settings.voiceURI = list[0].voiceURI;
-    select.value = list[0].voiceURI;
-    saveSettings();
-  }
+  const voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+  fallbackVoice = pickBestVoice(voices);
 }
 
 // Browser speechSynthesis quality varies wildly by OS/browser (often
@@ -204,10 +206,9 @@ function speakWithWebSpeech(text) {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
-  const voice = voices.find((v) => v.voiceURI === settings.voiceURI);
-  if (voice) {
-    utter.voice = voice;
-    utter.lang = voice.lang;
+  if (fallbackVoice) {
+    utter.voice = fallbackVoice;
+    utter.lang = fallbackVoice.lang;
   } else {
     utter.lang = "en-US";
   }
@@ -240,14 +241,6 @@ function speak(word) {
   };
   audio.addEventListener("error", fallback);
   audio.play().catch(fallback);
-}
-
-// The home screen's "試聽" button previews the selected FALLBACK voice
-// (the one speechSynthesis will use if a word's local clip can't load),
-// so it always goes through speechSynthesis directly rather than through
-// speak(), which would just play local audio and not exercise that voice.
-function speakPreview(text) {
-  speakWithWebSpeech(text);
 }
 
 /* ---------- View navigation ---------- */
@@ -289,15 +282,6 @@ document.getElementById("rate-select").addEventListener("input", (e) => {
   settings.rate = Number(e.target.value);
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
   saveSettings();
-});
-
-document.getElementById("voice-select").addEventListener("change", (e) => {
-  settings.voiceURI = e.target.value;
-  saveSettings();
-});
-
-document.getElementById("test-voice-btn").addEventListener("click", () => {
-  speakPreview("vocabulary");
 });
 
 document.getElementById("session-size").addEventListener("change", (e) => {
