@@ -98,25 +98,37 @@
   <!-- VOCABULARY TEST -->
   <section id="view-test" class="view">
     <div class="card center-card">
-      <div class="progress-row">
-        <div class="progress-bar"><div class="progress-fill" id="test-progress-fill"></div></div>
-        <span id="test-progress-text">00:00</span>
-      </div>
-      <div class="level-badge" id="test-level-badge">Level 4</div>
 
-      <button class="play-btn" id="test-play-btn" title="播放發音 (Enter 重播)">🔊</button>
-      <p class="hint">聽發音，輸入你聽到的單字</p>
-
-      <form id="test-form" autocomplete="off">
-        <input type="text" id="test-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <div id="test-empty" class="summary hidden">
+        <h2>沒有符合條件的單字</h2>
+        <p class="hint">目前選擇的等級範圍＋單字類型比例下沒有可以出題的單字，試試看調整「單字類型比例」滑桿（例如把 0% 的類別調高一點），或回首頁勾選其他等級。</p>
         <div class="row actions">
-          <button type="button" class="btn secondary" id="test-replay-btn">🔁 重播</button>
-          <button type="submit" class="btn primary" id="test-submit-btn">送出</button>
+          <button class="btn secondary" id="test-empty-home-btn">回首頁</button>
         </div>
-      </form>
+      </div>
 
-      <div id="test-feedback" class="feedback hidden"></div>
-      <button class="btn primary hidden" id="test-next-btn">下一題 →</button>
+      <div id="test-body">
+        <div class="progress-row">
+          <div class="progress-bar"><div class="progress-fill" id="test-progress-fill"></div></div>
+          <span id="test-progress-text">00:00</span>
+          <button type="button" class="btn secondary small" id="test-exit-btn" title="提早結束這一回合，顯示目前的成績">結束</button>
+        </div>
+        <div class="level-badge" id="test-level-badge">Level 4</div>
+
+        <button class="play-btn" id="test-play-btn" title="播放發音 (Enter 重播)">🔊</button>
+        <p class="hint">聽發音，輸入你聽到的單字</p>
+
+        <form id="test-form" autocomplete="off">
+          <input type="text" id="test-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          <div class="row actions">
+            <button type="button" class="btn secondary" id="test-replay-btn">🔁 重播</button>
+            <button type="submit" class="btn primary" id="test-submit-btn">送出</button>
+          </div>
+        </form>
+
+        <div id="test-feedback" class="feedback hidden"></div>
+        <button class="btn primary hidden" id="test-next-btn">下一題 →</button>
+      </div>
 
       <div id="test-summary" class="summary hidden">
         <h2>本回合測驗結束！</h2>

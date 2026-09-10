@@ -824,6 +824,21 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   // generous). testTimeUp()/advanceTest() below are what actually end the
   // round.
   vocabTest.list = Logic.selectQuestions({ pool: pool, historyStore: progressStore, size: pool.length, ratio: ratio });
+  document.getElementById("test-summary").classList.add("hidden");
+  // The chosen levels + ratio can genuinely come up empty (e.g. sliders set
+  // to 100% incorrect/待複習 but nothing is currently marked incorrect) -
+  // showTestWord() below indexes into an empty list otherwise, so this has
+  // to be checked before touching any round state. Shows the same view the
+  // round itself would (no separate screen to navigate through), with a
+  // way back to adjust the sliders instead of a crash.
+  if (!vocabTest.list.length) {
+    document.getElementById("test-body").classList.add("hidden");
+    document.getElementById("test-empty").classList.remove("hidden");
+    showView("test");
+    return;
+  }
+  document.getElementById("test-empty").classList.add("hidden");
+  document.getElementById("test-body").classList.remove("hidden");
   vocabTest.index = 0;
   vocabTest.answeredCount = 0;
   vocabTest.correctCount = 0;
@@ -831,7 +846,6 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   vocabTest.inProgress = true;
   vocabTest.startedAt = Date.now();
   vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
-  document.getElementById("test-summary").classList.add("hidden");
   document.getElementById("test-form").classList.remove("hidden");
   showView("test");
   startRoundTimer(updateTestTimeDisplay);
@@ -980,6 +994,23 @@ document.getElementById("test-again-btn").addEventListener("click", () => {
   document.getElementById("start-test-btn").click();
 });
 document.getElementById("test-home-btn").addEventListener("click", () => showView("home"));
+document.getElementById("test-empty-home-btn").addEventListener("click", () => showView("home"));
+
+// Mid-round exit: ends the round right now and shows the summary for
+// whatever was actually answered so far - the same outcome as the clock
+// running out, just triggered on purpose instead of waited out. A light
+// confirm guards against an accidental tap (e.g. a mis-tap while typing)
+// throwing away an otherwise-still-running round; unlike the tab-away
+// confirm, "確定" here doesn't need to warn about anything being
+// discarded, since finishTest() already keeps everything answered so far.
+document.getElementById("test-exit-btn").addEventListener("click", async () => {
+  if (!vocabTest.inProgress) return;
+  const confirmed = await showConfirmDialog("確定要提早結束這一回合嗎？會直接顯示目前的成績。", {
+    confirmText: "結束",
+  });
+  if (!confirmed) return;
+  finishTest();
+});
 
 /* ---------- Review List (browsable Learning / Incorrect words) ---------- */
 
