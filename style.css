@@ -411,6 +411,44 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   padding: 20px 16px;
 }
 
+.btn.small {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.update-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.update-status {
+  font-size: 0.8rem;
+}
+
+.update-status.up-to-date { color: var(--good); }
+.update-status.updating { color: var(--primary); }
+.update-status.error { color: var(--danger); }
+
+.update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  z-index: 100;
+}
+
 @media (max-width: 480px) {
   .play-btn { width: 76px; height: 76px; font-size: 1.7rem; }
   .flashcard-word { font-size: 1.7rem; }

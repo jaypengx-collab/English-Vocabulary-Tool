@@ -1,5 +1,10 @@
 "use strict";
 
+// Stamped with the short git commit SHA by the Pages deploy workflow
+// (see .github/workflows/pages.yml). Stays as the literal placeholder
+// when running locally without that build step.
+const APP_VERSION = "__BUILD_VERSION__";
+
 /* ---------- Constants ---------- */
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
@@ -666,9 +671,83 @@ document.getElementById("reset-progress-btn").addEventListener("click", () => {
   }
 });
 
+/* ---------- Check for updates ---------- */
+
+const JUST_UPDATED_KEY = "vocab_just_updated";
+
+function showUpdateToast(text) {
+  const toast = document.getElementById("update-toast");
+  toast.textContent = text;
+  toast.classList.remove("hidden");
+  setTimeout(() => toast.classList.add("hidden"), 4000);
+}
+
+// Removes the one-time cache-busting query param a forced reload adds,
+// so it doesn't linger in the address bar.
+function stripHardRefreshParam() {
+  if (location.search.includes("hardrefresh=")) {
+    history.replaceState(null, "", location.pathname);
+  }
+}
+
+async function checkForUpdate() {
+  const btn = document.getElementById("update-check-btn");
+  const statusEl = document.getElementById("update-status");
+  btn.disabled = true;
+  statusEl.className = "update-status";
+  statusEl.textContent = "檢查中...";
+
+  try {
+    // cache: "no-store" plus a one-off query string defeats both the
+    // browser cache and GitHub Pages' CDN cache, so this always reflects
+    // whatever was most recently deployed - not a cached copy.
+    const res = await fetch(`app.js?check=${Date.now()}`, { cache: "no-store" });
+    const text = await res.text();
+    const match = text.match(/const APP_VERSION = "([^"]*)"/);
+    const remoteVersion = match ? match[1] : null;
+
+    // A real stamped version is always an 8-char git short SHA. Anything
+    // else means this copy (local or remote) wasn't built by the deploy
+    // workflow - e.g. local dev, where the __BUILD_VERSION__ placeholder
+    // is never substituted. Note: that placeholder token itself must not
+    // appear literally in this comparison, since the CI step's sed command
+    // replaces every occurrence of it in this file, including here.
+    const isRealVersion = (v) => typeof v === "string" && /^[0-9a-f]{8}$/.test(v);
+
+    if (!isRealVersion(remoteVersion) || !isRealVersion(APP_VERSION) || remoteVersion === APP_VERSION) {
+      statusEl.classList.add("up-to-date");
+      statusEl.textContent = "✅ 目前已是最新版本";
+      btn.disabled = false;
+    } else {
+      statusEl.classList.add("updating");
+      statusEl.textContent = "🔄 發現新版本，正在重新整理...";
+      sessionStorage.setItem(JUST_UPDATED_KEY, remoteVersion);
+      setTimeout(() => {
+        // A brand-new query string on the page itself is a guaranteed
+        // cache miss, so this reload always fetches the fresh index.html
+        // (and, through it, the fresh app.js/style.css/vocab.json).
+        window.location.href = `${location.pathname}?hardrefresh=${Date.now()}`;
+      }, 600);
+    }
+  } catch (e) {
+    statusEl.classList.add("error");
+    statusEl.textContent = "⚠️ 檢查失敗，請確認網路連線";
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("update-check-btn").addEventListener("click", checkForUpdate);
+
 /* ---------- Init ---------- */
 
 async function init() {
+  stripHardRefreshParam();
+  const justUpdated = sessionStorage.getItem(JUST_UPDATED_KEY);
+  if (justUpdated) {
+    sessionStorage.removeItem(JUST_UPDATED_KEY);
+    showUpdateToast(`✅ 已更新到最新版本（${justUpdated}）`);
+  }
+
   await loadVocab();
   updateLevelHint();
 
