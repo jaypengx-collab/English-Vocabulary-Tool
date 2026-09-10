@@ -16,6 +16,13 @@ const BOX_INTERVALS_MS = [
 const MAX_BOX = BOX_INTERVALS_MS.length - 1;
 const MASTERED_BOX = 5;
 
+// Response-time model: predicts how long a correct answer "should" take
+// (listening + typing), so an unusually slow-but-correct answer can be
+// treated as shaky knowledge rather than a fully mastered word.
+const DEFAULT_MS_PER_CHAR = 350;
+const FIXED_OVERHEAD_MS = 900;
+const SLOW_RATIO_THRESHOLD = 1.7;
+
 const PROGRESS_KEY = "vocab_progress_v1";
 const SETTINGS_KEY = "vocab_settings_v1";
 
@@ -40,7 +47,7 @@ function saveJSON(key, value) {
 
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], voiceURI: "", rate: 0.9, sessionSize: 20 },
+  { levels: [4, 5, 6], voiceURI: "", rate: 0.9, sessionSize: 20, msPerChar: DEFAULT_MS_PER_CHAR },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -65,11 +72,33 @@ function getDue(word) {
   return p ? p.due : 0;
 }
 
-function recordDictationResult(word, correct) {
+// How long a correct answer "should" take to type, given the word's
+// length and how fast this user has been typing correct answers so far.
+function expectedResponseTimeMs(word) {
+  return FIXED_OVERHEAD_MS + settings.msPerChar * word.length;
+}
+
+// Nudges the learned typing speed baseline toward this sample. Only called
+// for correct answers, and outliers (e.g. the user walked away) are capped
+// so one distracted answer can't wreck the baseline.
+function updateTypingSpeed(word, elapsedMs) {
+  const capped = Math.min(elapsedMs, expectedResponseTimeMs(word) * 4);
+  const perChar = capped / Math.max(3, word.length);
+  settings.msPerChar = settings.msPerChar * 0.85 + perChar * 0.15;
+  saveSettings();
+}
+
+function recordDictationResult(word, correct, slow) {
   const p = getProgress(word);
   if (correct) {
-    p.box = Math.min(MAX_BOX, p.box + 1);
     p.correct += 1;
+    if (slow) {
+      // Correct, but took much longer than expected: recall was shaky, so
+      // don't advance the box - keep the same (shorter) review interval
+      // instead of pushing this word further away.
+    } else {
+      p.box = Math.min(MAX_BOX, p.box + 1);
+    }
   } else {
     p.box = 0;
     p.wrong += 1;
@@ -151,6 +180,69 @@ function buildSession(pool, size) {
     }
   }
   return shuffle(list);
+}
+
+/* ---------- Chinese meaning rendering ---------- */
+
+// ECDICT stores multiple part-of-speech senses joined with a literal
+// backslash-n sequence (not a real newline character) - split on that.
+function zhLines(zh) {
+  return zh ? zh.split("\\n") : ["（無中文釋義）"];
+}
+
+function buildZhBlock(zh) {
+  const div = document.createElement("div");
+  div.className = "zh-meaning";
+  zhLines(zh).forEach((line, i) => {
+    if (i > 0) div.appendChild(document.createElement("br"));
+    div.appendChild(document.createTextNode(line));
+  });
+  return div;
+}
+
+function fillZhInto(el, zh) {
+  el.innerHTML = "";
+  zhLines(zh).forEach((line, i) => {
+    if (i > 0) el.appendChild(document.createElement("br"));
+    el.appendChild(document.createTextNode(line));
+  });
+}
+
+// A clickable chip that reveals a word's Chinese meaning on tap - used in
+// the end-of-round summaries.
+function buildWordChip(item) {
+  const wrap = document.createElement("div");
+  wrap.className = "word-chip";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "word-chip-btn";
+  btn.textContent = `${item.word} `;
+  const posSpan = document.createElement("span");
+  posSpan.className = "muted";
+  posSpan.textContent = item.pos;
+  btn.appendChild(posSpan);
+
+  const zhDiv = document.createElement("div");
+  zhDiv.className = "word-chip-zh hidden";
+  zhLines(item.zh).forEach((line, i) => {
+    if (i > 0) zhDiv.appendChild(document.createElement("br"));
+    zhDiv.appendChild(document.createTextNode(line));
+  });
+
+  btn.addEventListener("click", () => zhDiv.classList.toggle("hidden"));
+
+  wrap.appendChild(btn);
+  wrap.appendChild(zhDiv);
+  return wrap;
+}
+
+function renderWordChipList(containerEl, items) {
+  containerEl.innerHTML = "";
+  const list = document.createElement("div");
+  list.className = "word-chip-list";
+  items.forEach((item) => list.appendChild(buildWordChip(item)));
+  containerEl.appendChild(list);
 }
 
 /* ---------- Text to speech ---------- */
@@ -254,7 +346,7 @@ document.getElementById("session-size").addEventListener("change", (e) => {
 
 /* ---------- Dictation mode ---------- */
 
-const dict = { list: [], index: 0, correctCount: 0, missed: [], answered: false };
+const dict = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0 };
 
 document.getElementById("start-dictation-btn").addEventListener("click", () => {
   const levels = selectedLevels();
@@ -286,6 +378,7 @@ function showDictWord() {
   document.getElementById("dict-next-btn").classList.add("hidden");
   input.focus();
 
+  dict.wordShownAt = Date.now();
   speak(item.word);
 }
 
@@ -307,20 +400,46 @@ document.getElementById("dict-form").addEventListener("submit", (e) => {
   const guess = input.value.trim().toLowerCase();
   const correct = guess === item.word.toLowerCase();
 
-  recordDictationResult(item.word, correct);
+  const elapsed = Date.now() - dict.wordShownAt;
+  const slow = correct && elapsed > expectedResponseTimeMs(item.word) * SLOW_RATIO_THRESHOLD;
+  if (correct && !slow) updateTypingSpeed(item.word, elapsed);
+
+  recordDictationResult(item.word, correct, slow);
   dict.answered = true;
   input.disabled = true;
 
   const feedback = document.getElementById("dict-feedback");
   feedback.classList.remove("hidden", "correct", "wrong");
+  feedback.innerHTML = "";
+
+  const title = document.createElement("div");
+  const answerWord = document.createElement("div");
+  answerWord.className = "answer-word";
   if (correct) {
     dict.correctCount += 1;
     feedback.classList.add("correct");
-    feedback.innerHTML = `✅ 正確！<div class="answer-word">${item.word} <span class="muted">${item.pos}</span></div>`;
+    title.textContent = "✅ 正確！";
+    answerWord.textContent = `${item.word} `;
   } else {
     dict.missed.push(item);
     feedback.classList.add("wrong");
-    feedback.innerHTML = `❌ 再加油　你的答案：${guess || "(空白)"}<div class="answer-word">正確答案：${item.word} <span class="muted">${item.pos}</span></div>`;
+    title.textContent = `❌ 再加油　你的答案：${guess || "(空白)"}`;
+    answerWord.textContent = `正確答案：${item.word} `;
+  }
+  const posSpan = document.createElement("span");
+  posSpan.className = "muted";
+  posSpan.textContent = item.pos;
+  answerWord.appendChild(posSpan);
+
+  feedback.appendChild(title);
+  feedback.appendChild(answerWord);
+  feedback.appendChild(buildZhBlock(item.zh));
+
+  if (slow) {
+    const note = document.createElement("div");
+    note.className = "slow-note";
+    note.textContent = "⏱️ 這題你想了比較久才答對，系統判斷你還不夠熟，會讓它提早再出現一次。";
+    feedback.appendChild(note);
   }
 
   const isLast = dict.index === dict.list.length - 1;
@@ -351,14 +470,28 @@ function finishDictation() {
     `答對 ${dict.correctCount} / ${total} 題（${Math.round((dict.correctCount / total) * 100)}%）`;
 
   const missedDiv = document.getElementById("dict-summary-missed");
+  missedDiv.innerHTML = "";
   if (dict.missed.length) {
-    missedDiv.innerHTML =
-      `<p class="hint">拼錯的單字：</p><ul class="missed-list">${dict.missed
-        .map((w) => `<li>${w.word} <span class="muted">${w.pos}</span></li>`)
-        .join("")}</ul>`;
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "拼錯的單字（點擊查看中文意思）：";
+    missedDiv.appendChild(p);
+    const holder = document.createElement("div");
+    missedDiv.appendChild(holder);
+    renderWordChipList(holder, dict.missed);
   } else {
     missedDiv.innerHTML = `<p class="hint">全部答對，太厲害了！🎉</p>`;
   }
+
+  const allDiv = document.getElementById("dict-summary-all");
+  allDiv.innerHTML = "";
+  const allP = document.createElement("p");
+  allP.className = "hint";
+  allP.textContent = "本回合全部單字（點擊查看中文意思）：";
+  allDiv.appendChild(allP);
+  const allHolder = document.createElement("div");
+  allDiv.appendChild(allHolder);
+  renderWordChipList(allHolder, dict.list);
 
   document.getElementById("dict-summary").classList.remove("hidden");
 }
@@ -395,8 +528,10 @@ function showRevCard() {
 
   document.getElementById("rev-word").textContent = item.word;
   document.getElementById("rev-pos").textContent = item.pos;
+  fillZhInto(document.getElementById("rev-zh"), item.zh);
   document.getElementById("rev-word").classList.add("hidden");
   document.getElementById("rev-pos").classList.add("hidden");
+  document.getElementById("rev-zh").classList.add("hidden");
   document.getElementById("rev-hint").classList.remove("hidden");
   document.getElementById("rev-reveal-btn").classList.remove("hidden");
   document.getElementById("rev-grade-row").classList.add("hidden");
@@ -411,6 +546,7 @@ document.getElementById("rev-play-btn").addEventListener("click", () => {
 document.getElementById("rev-reveal-btn").addEventListener("click", () => {
   document.getElementById("rev-word").classList.remove("hidden");
   document.getElementById("rev-pos").classList.remove("hidden");
+  document.getElementById("rev-zh").classList.remove("hidden");
   document.getElementById("rev-hint").classList.add("hidden");
   document.getElementById("rev-reveal-btn").classList.add("hidden");
   document.getElementById("rev-grade-row").classList.remove("hidden");
@@ -441,6 +577,17 @@ function finishReview() {
   const g = rev.grades;
   document.getElementById("rev-summary-score").textContent =
     `很熟悉 ${g.easy}　記得 ${g.good}　有點難 ${g.hard}　忘記了 ${g.again}`;
+
+  const wordsDiv = document.getElementById("rev-summary-words");
+  wordsDiv.innerHTML = "";
+  const p = document.createElement("p");
+  p.className = "hint";
+  p.textContent = "本回合單字（點擊查看中文意思）：";
+  wordsDiv.appendChild(p);
+  const holder = document.createElement("div");
+  wordsDiv.appendChild(holder);
+  renderWordChipList(holder, rev.list);
+
   document.getElementById("rev-summary").classList.remove("hidden");
 }
 
@@ -476,6 +623,10 @@ function renderStats() {
     <div class="stat-box"><span class="num">${brandNew}</span><span class="label">尚未學習</span></div>
     <div class="stat-box"><span class="num">${due}</span><span class="label">待複習</span></div>
   `;
+
+  document.getElementById("stats-speed-hint").textContent =
+    `聽寫反應速度基準：每個字元約 ${Math.round(settings.msPerChar)} 毫秒（會隨你的作答自動調整）。` +
+    `聽寫時若某題答對但想了明顯比這個基準久，即使答對，該字也會提早再次出現，而不是直接視為已熟記。`;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {

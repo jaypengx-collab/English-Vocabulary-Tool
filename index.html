@@ -90,6 +90,7 @@
         <h2>本回合結束！</h2>
         <p id="dict-summary-score"></p>
         <div id="dict-summary-missed"></div>
+        <div id="dict-summary-all"></div>
         <div class="row actions">
           <button class="btn primary" id="dict-again-btn">再來一回合</button>
           <button class="btn secondary" id="dict-home-btn">回首頁</button>
@@ -112,6 +113,7 @@
       <div class="flashcard" id="rev-flashcard">
         <div class="flashcard-word hidden" id="rev-word"></div>
         <div class="flashcard-pos hidden" id="rev-pos"></div>
+        <div class="flashcard-zh hidden" id="rev-zh"></div>
         <p class="hint" id="rev-hint">先聽發音，猜猜看這個字怎麼拼、什麼意思，再按「顯示答案」</p>
       </div>
 
@@ -127,6 +129,7 @@
       <div id="rev-summary" class="summary hidden">
         <h2>本回合複習完成！</h2>
         <p id="rev-summary-score"></p>
+        <div id="rev-summary-words"></div>
         <div class="row actions">
           <button class="btn primary" id="rev-again-btn">再來一回合</button>
           <button class="btn secondary" id="rev-home-btn">回首頁</button>
@@ -140,6 +143,7 @@
     <div class="card">
       <h2>學習統計</h2>
       <div class="stats-grid" id="stats-grid"></div>
+      <p class="hint" id="stats-speed-hint"></p>
       <h2>各等級熟悉度</h2>
       <div id="stats-levels"></div>
       <div class="row actions">

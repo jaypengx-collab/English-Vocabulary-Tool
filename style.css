@@ -281,6 +281,25 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   font-style: italic;
 }
 
+.flashcard-zh {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+.zh-meaning {
+  margin-top: 6px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.slow-note {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--warn);
+}
+
 .grade-row { gap: 8px; }
 
 .summary { margin-top: 20px; text-align: left; }
@@ -300,6 +319,39 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.9rem;
+}
+
+.word-chip-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.word-chip {
+  background: var(--secondary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.word-chip-btn {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--secondary-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.word-chip-zh {
+  padding: 0 10px 10px 10px;
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text);
 }
 
 .stats-grid {
