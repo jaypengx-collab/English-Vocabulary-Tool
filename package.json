@@ -1,0 +1,9 @@
+{
+  "name": "english-vocabulary-tool",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Vocabulary Test - static frontend with a pure/testable memorization-scoring and question-selection core.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}

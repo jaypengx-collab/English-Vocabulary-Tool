@@ -11,9 +11,10 @@
   --danger: #e03131;
   --good: #2f9e44;
   --warn: #f08c00;
-  --hard: #e8590c;
-  --again: #e03131;
-  --easy: #2f9e44;
+  --state-new: #9096a5;
+  --state-learning: #f08c00;
+  --state-incorrect: #e03131;
+  --state-memorized: #2f9e44;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
 }
 
@@ -94,6 +95,8 @@ body {
   box-shadow: var(--shadow);
 }
 
+.card + .card { margin-top: 16px; }
+
 .card h2 {
   font-size: 1rem;
   margin: 24px 0 10px 0;
@@ -120,11 +123,26 @@ body {
 
 .level-chip input { accent-color: var(--primary); width: 16px; height: 16px; }
 
+.filter-chip {
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter-chip.active { background: var(--primary); color: var(--primary-text); }
+
 .hint {
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.5;
 }
+
+.hint.danger-text { color: var(--danger); }
 
 .row {
   display: flex;
@@ -164,15 +182,6 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 .btn.secondary { background: var(--secondary); color: var(--secondary-text); }
 .btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 
-.btn.grade {
-  flex: 1;
-  color: #fff;
-}
-.btn.grade.again { background: var(--again); }
-.btn.grade.hard { background: var(--hard); }
-.btn.grade.good { background: var(--primary); }
-.btn.grade.easy { background: var(--easy); }
-
 .actions { margin-top: 16px; }
 
 .center-card { text-align: center; }
@@ -199,7 +208,7 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   transition: width 0.25s ease;
 }
 
-#dict-progress-text, #rev-progress-text {
+#test-progress-text, #rev-progress-text {
   font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
@@ -232,14 +241,14 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 .play-btn:active { transform: scale(0.96); }
 
-#dict-form {
+#test-form, #rev-form {
   display: flex;
   flex-direction: column;
   align-items: center;
   margin-top: 16px;
 }
 
-#dict-input {
+#test-input, #rev-input {
   width: 100%;
   max-width: 320px;
   text-align: center;
@@ -261,32 +270,6 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 .hidden { display: none !important; }
 
-.flashcard {
-  min-height: 120px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.flashcard-word {
-  font-size: 2.2rem;
-  font-weight: 700;
-}
-
-.flashcard-pos {
-  color: var(--muted);
-  font-style: italic;
-}
-
-.flashcard-zh {
-  font-size: 1.05rem;
-  line-height: 1.6;
-  margin-top: 4px;
-}
-
 .zh-meaning {
   margin-top: 6px;
   font-size: 0.95rem;
@@ -294,13 +277,12 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   color: var(--text);
 }
 
-.slow-note {
+.speed-note {
   margin-top: 10px;
   font-size: 0.85rem;
-  color: var(--warn);
 }
-
-.grade-row { gap: 8px; }
+.speed-note.faster { color: var(--good); }
+.speed-note.slower { color: var(--warn); }
 
 .summary { margin-top: 20px; text-align: left; }
 .summary h2 { color: var(--text); }
@@ -400,9 +382,175 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 }
 
 .level-stat-bar .seg { height: 100%; }
-.seg-new { background: var(--border); }
-.seg-learning { background: var(--warn); }
-.seg-mastered { background: var(--good); }
+.seg-new { background: var(--state-new); }
+.seg-learning { background: var(--state-learning); }
+.seg-incorrect { background: var(--state-incorrect); }
+.seg-memorized { background: var(--state-memorized); }
+
+.state-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: #fff;
+  white-space: nowrap;
+}
+.state-badge.new { background: var(--state-new); }
+.state-badge.learning { background: var(--state-learning); }
+.state-badge.incorrect { background: var(--state-incorrect); }
+.state-badge.memorized { background: var(--state-memorized); }
+
+.word-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.word-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.word-table th, .word-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.word-table th {
+  color: var(--muted);
+  font-weight: 600;
+  background: var(--secondary);
+  position: sticky;
+  top: 0;
+}
+
+.word-table tbody tr:last-child td { border-bottom: none; }
+
+.word-cell { font-weight: 600; }
+
+.row-play-btn {
+  border: none;
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.row-word-toggle {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.row-zh {
+  white-space: normal;
+  max-width: 280px;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.diff-miss {
+  background: rgba(224, 49, 49, 0.15);
+  color: var(--danger);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.word-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.word-card {
+  background: var(--secondary);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.word-card-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.word-card-word {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.word-card-level {
+  display: inline-block;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.card-play-btn, .card-dict-btn {
+  border: none;
+  background: var(--surface);
+  color: var(--secondary-text);
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  font-size: 0.8rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.card-dict-btn { margin-left: auto; }
+
+.word-card-meta {
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+.word-card-wrong {
+  font-size: 0.9rem;
+  margin-top: 6px;
+}
+
+.pager {
+  justify-content: center;
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.pager-btn {
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pager-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 
 .footer {
   text-align: center;
@@ -451,5 +599,4 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 @media (max-width: 480px) {
   .play-btn { width: 76px; height: 76px; font-size: 1.7rem; }
-  .flashcard-word { font-size: 1.7rem; }
 }

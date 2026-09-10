@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>大考中心英文單字 Level 4-6 聽力練習</title>
+<title>高中英文單字測驗 Level 4-6</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔊</text></svg>" />
 <link rel="stylesheet" href="style.css?v=__BUILD_VERSION__" />
 </head>
@@ -12,9 +12,8 @@
   <h1>🔊 高中英文參考詞彙表 <span class="muted">Level 4–6</span></h1>
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-view="home">首頁</button>
-    <button class="tab-btn" data-view="dictation">聽寫練習</button>
-    <button class="tab-btn" data-view="review">複習卡片</button>
-    <button class="tab-btn" data-view="stats">學習統計</button>
+    <button class="tab-btn" data-view="reviewlist">複習</button>
+    <button class="tab-btn" data-view="progress">學習進度</button>
   </nav>
 </header>
 
@@ -31,105 +30,138 @@
       </div>
       <p class="hint" id="level-count-hint"></p>
 
-      <h2>語音設定</h2>
-      <div class="row">
-        <label for="voice-select">發音語音</label>
-        <select id="voice-select"></select>
-      </div>
+      <h2>語速設定</h2>
       <div class="row">
         <label for="rate-select">語速</label>
         <input type="range" id="rate-select" min="0.5" max="1.3" step="0.1" value="0.9">
         <span id="rate-value">0.9x</span>
       </div>
       <div class="row">
-        <button id="test-voice-btn" class="btn secondary">🔊 試聽</button>
+        <button id="test-voice-btn" class="btn secondary">🔊 試聽目前語速</button>
+        <span class="hint" id="test-voice-word"></span>
       </div>
 
-      <h2>開始練習</h2>
-      <div class="row">
-        <label for="session-size">每回合題數</label>
-        <select id="session-size">
-          <option value="10">10</option>
-          <option value="20" selected>20</option>
-          <option value="50">50</option>
-          <option value="0">全部（依範圍）</option>
-        </select>
+      <h2>選擇模式</h2>
+      <div class="level-picker" id="mode-picker">
+        <label class="level-chip"><input type="radio" name="mode" value="test" checked><span>📝 單字測驗</span></label>
+        <label class="level-chip"><input type="radio" name="mode" value="review"><span>🔁 複習測驗</span></label>
       </div>
-      <div class="row actions">
-        <button class="btn primary" id="start-dictation-btn">🎧 開始聽寫練習</button>
-        <button class="btn primary" id="start-review-btn">🗂️ 開始複習卡片</button>
+
+      <div id="test-mode-settings">
+        <h2>開始練習</h2>
+        <div class="row">
+          <label for="session-size">單字測驗題數</label>
+          <input type="number" id="session-size" min="0" max="3060" step="1" value="80" />
+        </div>
+        <div class="row" id="session-size-presets">
+          <button type="button" class="btn secondary small" data-size="10">10</button>
+          <button type="button" class="btn secondary small" data-size="20">20</button>
+          <button type="button" class="btn secondary small" data-size="50">50</button>
+          <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
+          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        </div>
+        <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 答錯待複習、10% 學習中的單字（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。已熟記（連續答對 2 次）的單字不會再出現，把機會留給還沒學會的字。</p>
+        <div class="row actions">
+          <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
+        </div>
       </div>
-      <p class="hint">聽寫練習：播放單字發音，輸入拼字，立即核對。<br>複習卡片：間隔複習系統（SRS），依熟悉度安排單字重複出現，直到記熟為止。</p>
+
+      <div id="review-mode-settings" class="hidden">
+        <h2>開始練習</h2>
+        <div class="row">
+          <label for="review-size">複習測驗題數</label>
+          <input type="number" id="review-size" min="0" max="3060" step="1" value="20" />
+        </div>
+        <div class="row" id="review-size-presets">
+          <button type="button" class="btn secondary small" data-size="10">10</button>
+          <button type="button" class="btn secondary small" data-size="20">20（建議）</button>
+          <button type="button" class="btn secondary small" data-size="50">50</button>
+          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        </div>
+        <p class="hint">複習測驗組成為 70% 答錯待複習、30% 學習中的單字，優先挑選比你平均反應時間慢、比較久沒複習的單字；已熟記的單字不會出現。輸入 0 表示複習該範圍內全部需要複習的單字。</p>
+        <div class="row actions">
+          <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- DICTATION MODE -->
-  <section id="view-dictation" class="view">
+  <!-- VOCABULARY TEST -->
+  <section id="view-test" class="view">
     <div class="card center-card">
       <div class="progress-row">
-        <div class="progress-bar"><div class="progress-fill" id="dict-progress-fill"></div></div>
-        <span id="dict-progress-text">0 / 0</span>
+        <div class="progress-bar"><div class="progress-fill" id="test-progress-fill"></div></div>
+        <span id="test-progress-text">0 / 0</span>
       </div>
-      <div class="level-badge" id="dict-level-badge">Level 4</div>
+      <div class="level-badge" id="test-level-badge">Level 4</div>
 
-      <button class="play-btn" id="dict-play-btn" title="播放發音 (Enter 重播)">🔊</button>
+      <button class="play-btn" id="test-play-btn" title="播放發音 (Enter 重播)">🔊</button>
       <p class="hint">聽發音，輸入你聽到的單字</p>
 
-      <form id="dict-form" autocomplete="off">
-        <input type="text" id="dict-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <form id="test-form" autocomplete="off">
+        <input type="text" id="test-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
         <div class="row actions">
-          <button type="button" class="btn secondary" id="dict-replay-btn">🔁 重播</button>
-          <button type="submit" class="btn primary" id="dict-submit-btn">送出</button>
+          <button type="button" class="btn secondary" id="test-replay-btn">🔁 重播</button>
+          <button type="submit" class="btn primary" id="test-submit-btn">送出</button>
         </div>
       </form>
 
-      <div id="dict-feedback" class="feedback hidden"></div>
-      <button class="btn primary hidden" id="dict-next-btn">下一題 →</button>
+      <div id="test-feedback" class="feedback hidden"></div>
+      <button class="btn primary hidden" id="test-next-btn">下一題 →</button>
 
-      <div id="dict-summary" class="summary hidden">
-        <h2>本回合結束！</h2>
-        <p id="dict-summary-score"></p>
-        <div id="dict-summary-missed"></div>
-        <div id="dict-summary-all"></div>
+      <div id="test-summary" class="summary hidden">
+        <h2>本回合測驗結束！</h2>
+        <p id="test-summary-score"></p>
+        <div id="test-summary-missed"></div>
+        <div id="test-summary-all"></div>
         <div class="row actions">
-          <button class="btn primary" id="dict-again-btn">再來一回合</button>
-          <button class="btn secondary" id="dict-home-btn">回首頁</button>
+          <button class="btn primary" id="test-again-btn">再來一回合</button>
+          <button class="btn secondary" id="test-home-btn">回首頁</button>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- REVIEW MODE (flashcards / SRS) -->
+  <!-- REVIEW TEST (auto-quizzes currently-incorrect/learning words, 70/30) -->
   <section id="view-review" class="view">
     <div class="card center-card">
-      <div class="progress-row">
-        <div class="progress-bar"><div class="progress-fill" id="rev-progress-fill"></div></div>
-        <span id="rev-progress-text">0 / 0</span>
-      </div>
-      <div class="level-badge" id="rev-level-badge">Level 4</div>
 
-      <button class="play-btn" id="rev-play-btn" title="播放發音">🔊</button>
-
-      <div class="flashcard" id="rev-flashcard">
-        <div class="flashcard-word hidden" id="rev-word"></div>
-        <div class="flashcard-pos hidden" id="rev-pos"></div>
-        <div class="flashcard-zh hidden" id="rev-zh"></div>
-        <p class="hint" id="rev-hint">先聽發音，猜猜看這個字怎麼拼、什麼意思，再按「顯示答案」</p>
+      <div id="rev-empty" class="summary hidden">
+        <h2>目前沒有需要複習的單字</h2>
+        <p class="hint">去做幾回合單字測驗，答錯或還在學習中的單字會自動成為複習測驗的候選。</p>
+        <div class="row actions">
+          <button class="btn secondary" id="rev-empty-home-btn">回首頁</button>
+        </div>
       </div>
 
-      <button class="btn primary" id="rev-reveal-btn">👁️ 顯示答案</button>
+      <div id="rev-body">
+        <div class="progress-row">
+          <div class="progress-bar"><div class="progress-fill" id="rev-progress-fill"></div></div>
+          <span id="rev-progress-text">0 / 0</span>
+        </div>
+        <div class="level-badge" id="rev-level-badge">Level 4</div>
 
-      <div class="row actions grade-row hidden" id="rev-grade-row">
-        <button class="btn grade again" data-grade="again">忘記了</button>
-        <button class="btn grade hard" data-grade="hard">有點難</button>
-        <button class="btn grade good" data-grade="good">記得</button>
-        <button class="btn grade easy" data-grade="easy">很熟悉</button>
+        <button class="play-btn" id="rev-play-btn" title="播放發音 (Enter 重播)">🔊</button>
+        <p class="hint">複習測驗：答錯或還在學習中的單字，再挑戰一次！</p>
+
+        <form id="rev-form" autocomplete="off">
+          <input type="text" id="rev-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+          <div class="row actions">
+            <button type="button" class="btn secondary" id="rev-replay-btn">🔁 重播</button>
+            <button type="submit" class="btn primary" id="rev-submit-btn">送出</button>
+          </div>
+        </form>
+
+        <div id="rev-feedback" class="feedback hidden"></div>
+        <button class="btn primary hidden" id="rev-next-btn">下一題 →</button>
       </div>
 
       <div id="rev-summary" class="summary hidden">
-        <h2>本回合複習完成！</h2>
+        <h2>複習測驗結束！</h2>
         <p id="rev-summary-score"></p>
+        <p class="hint" id="rev-summary-trend"></p>
         <div id="rev-summary-words"></div>
+
         <div class="row actions">
           <button class="btn primary" id="rev-again-btn">再來一回合</button>
           <button class="btn secondary" id="rev-home-btn">回首頁</button>
@@ -138,14 +170,85 @@
     </div>
   </section>
 
-  <!-- STATS -->
-  <section id="view-stats" class="view">
+  <!-- REVIEW LIST (browsable Learning / Incorrect words, not a quiz) -->
+  <section id="view-reviewlist" class="view">
     <div class="card">
-      <h2>學習統計</h2>
-      <div class="stats-grid" id="stats-grid"></div>
-      <p class="hint" id="stats-speed-hint"></p>
+      <h2>複習</h2>
+      <div class="row">
+        <input type="text" id="reviewlist-search" placeholder="搜尋單字（同時篩選下面兩個清單）..." />
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>答錯待複習 <span class="muted">（<span id="reviewlist-incorrect-count">0</span>）</span></h2>
+      <p class="hint">列出答錯之後正確拼法與你實際打的內容，方便找出自己容易錯在哪裡。</p>
+      <div class="row">
+        <label for="reviewlist-incorrect-sort">排序</label>
+        <select id="reviewlist-incorrect-sort">
+          <option value="tries" selected>嘗試次數（多到少，最容易錯優先）</option>
+          <option value="recent">最近錯誤（新到舊）</option>
+          <option value="oldest">最近錯誤（舊到新）</option>
+          <option value="slow">反應時間（慢到快）</option>
+          <option value="az">字母順序 A→Z</option>
+        </select>
+      </div>
+      <div id="reviewlist-incorrect"></div>
+      <div id="reviewlist-incorrect-pager"></div>
+    </div>
+
+    <div class="card">
+      <h2>學習中的單字 <span class="muted">（<span id="reviewlist-learning-count">0</span>）</span></h2>
+      <div class="row">
+        <label for="reviewlist-learning-sort">排序</label>
+        <select id="reviewlist-learning-sort">
+          <option value="slow" selected>反應時間（慢到快，最需要加強優先）</option>
+          <option value="tries">嘗試次數（多到少）</option>
+          <option value="streak">連續正確次數（少到多）</option>
+          <option value="recent">最近練習（新到舊）</option>
+          <option value="oldest">最近練習（舊到新）</option>
+          <option value="az">字母順序 A→Z</option>
+        </select>
+      </div>
+      <div id="reviewlist-learning"></div>
+      <div id="reviewlist-learning-pager"></div>
+    </div>
+  </section>
+
+  <!-- PROGRESS -->
+  <section id="view-progress" class="view">
+    <div class="card">
+      <h2>學習總覽</h2>
+      <div class="stats-grid" id="progress-grid"></div>
+      <p class="hint" id="progress-trend-hint"></p>
+
       <h2>各等級熟悉度</h2>
-      <div id="stats-levels"></div>
+      <div id="progress-levels"></div>
+
+      <h2>單字明細</h2>
+      <div class="row" id="progress-filter-chips">
+        <button type="button" class="filter-chip active" data-state="attempted">已練習過</button>
+        <button type="button" class="filter-chip" data-state="new">尚未測驗</button>
+        <button type="button" class="filter-chip" data-state="incorrect">答錯待複習</button>
+        <button type="button" class="filter-chip" data-state="learning">學習中</button>
+        <button type="button" class="filter-chip" data-state="memorized">已熟記</button>
+        <button type="button" class="filter-chip" data-state="all">全部單字</button>
+      </div>
+      <div class="row">
+        <input type="text" id="progress-search" placeholder="搜尋單字..." />
+      </div>
+      <p class="hint">點擊單字可以顯示／隱藏中文意思，點擊 🔊 可以播放發音。</p>
+      <div id="progress-word-table"></div>
+
+      <h2>備份與還原</h2>
+      <p class="hint">學習紀錄目前只存在這台裝置的瀏覽器裡，清除瀏覽器資料或換裝置都會遺失。
+        在正式帳號同步功能做好之前，建議定期匯出備份檔保存起來；需要時再匯入還原。</p>
+      <div class="row actions">
+        <button class="btn secondary" id="export-progress-btn">📤 匯出學習紀錄</button>
+        <button class="btn secondary" id="import-progress-btn">📥 匯入學習紀錄</button>
+        <input type="file" id="import-progress-file" accept="application/json,.json" class="hidden" />
+      </div>
+      <p class="hint hidden" id="import-status"></p>
+
       <div class="row actions">
         <button class="btn danger" id="reset-progress-btn">清除全部學習紀錄</button>
       </div>
@@ -164,6 +267,7 @@
 
 <div id="update-toast" class="update-toast hidden"></div>
 
+<script src="logic.js?v=__BUILD_VERSION__"></script>
 <script src="app.js?v=__BUILD_VERSION__"></script>
 </body>
 </html>
