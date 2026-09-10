@@ -59,7 +59,7 @@
           <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
           <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
         </div>
-        <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 曾經答錯、10% 曾經答對（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。播放單字發音，輸入拼字，立即核對，並記錄每一題的作答資料。</p>
+        <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 答錯待複習、10% 學習中的單字（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。已熟記（連續答對 2 次）的單字不會再出現，把機會留給還沒學會的字。</p>
         <div class="row actions">
           <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
         </div>
@@ -67,7 +67,17 @@
 
       <div id="review-mode-settings" class="hidden">
         <h2>開始練習</h2>
-        <p class="hint">複習測驗會自動從「答錯清單」出題（在單字測驗中答錯的單字），不需要設定題數。回合結束後會顯示這次的正確率與反應時間變化，並可選擇是否把這次答對的單字從答錯清單移除。</p>
+        <div class="row">
+          <label for="review-size">複習測驗題數</label>
+          <input type="number" id="review-size" min="0" max="3060" step="1" value="20" />
+        </div>
+        <div class="row" id="review-size-presets">
+          <button type="button" class="btn secondary small" data-size="10">10</button>
+          <button type="button" class="btn secondary small" data-size="20">20（建議）</button>
+          <button type="button" class="btn secondary small" data-size="50">50</button>
+          <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+        </div>
+        <p class="hint">複習測驗組成為 70% 答錯待複習、30% 學習中的單字，優先挑選比你平均反應時間慢、比較久沒複習的單字；已熟記的單字不會出現。輸入 0 表示複習該範圍內全部需要複習的單字。</p>
         <div class="row actions">
           <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
         </div>
@@ -111,13 +121,13 @@
     </div>
   </section>
 
-  <!-- REVIEW TEST (auto-quizzes the wrong-word list) -->
+  <!-- REVIEW TEST (auto-quizzes currently-incorrect/learning words, 70/30) -->
   <section id="view-review" class="view">
     <div class="card center-card">
 
       <div id="rev-empty" class="summary hidden">
-        <h2>目前沒有待複習的答錯單字</h2>
-        <p class="hint">去做幾回合單字測驗，答錯的單字會自動加入複習測驗的清單。</p>
+        <h2>目前沒有需要複習的單字</h2>
+        <p class="hint">去做幾回合單字測驗，答錯或還在學習中的單字會自動成為複習測驗的候選。</p>
         <div class="row actions">
           <button class="btn secondary" id="rev-empty-home-btn">回首頁</button>
         </div>
@@ -131,7 +141,7 @@
         <div class="level-badge" id="rev-level-badge">Level 4</div>
 
         <button class="play-btn" id="rev-play-btn" title="播放發音 (Enter 重播)">🔊</button>
-        <p class="hint">複習測驗：這些是你之前答錯的單字，再挑戰一次！</p>
+        <p class="hint">複習測驗：答錯或還在學習中的單字，再挑戰一次！</p>
 
         <form id="rev-form" autocomplete="off">
           <input type="text" id="rev-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
@@ -150,15 +160,6 @@
         <p id="rev-summary-score"></p>
         <p class="hint" id="rev-summary-trend"></p>
         <div id="rev-summary-words"></div>
-
-        <div id="rev-outcome-prompt">
-          <p class="hint">要把這次答對的單字從答錯清單移除嗎？</p>
-          <div class="row actions">
-            <button class="btn secondary" id="rev-keep-btn">保留全部</button>
-            <button class="btn primary" id="rev-remove-btn">移除答對的單字</button>
-          </div>
-        </div>
-        <p class="hint hidden" id="rev-outcome-note"></p>
 
         <div class="row actions">
           <button class="btn primary" id="rev-again-btn">再來一回合</button>
@@ -184,8 +185,8 @@
         <select id="progress-filter">
           <option value="attempted" selected>已練習過的單字</option>
           <option value="new">尚未測驗</option>
+          <option value="incorrect">答錯待複習</option>
           <option value="learning">學習中</option>
-          <option value="review">待複習</option>
           <option value="memorized">已熟記</option>
           <option value="all">全部單字</option>
         </select>

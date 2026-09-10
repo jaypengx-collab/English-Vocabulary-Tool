@@ -26,20 +26,26 @@ function makePool(count, level, prefix) {
   return out;
 }
 
-// Plays out N attempts against a fresh history for `word`, at fixed
-// responseMs unless overridden per-attempt.
+// Plays out N attempts against a fresh history for a word.
 function play(history, results) {
   let t = 1000;
   for (const r of results) {
     t += 1000;
-    L.recordAttempt(history, { correct: r.correct, responseMs: r.responseMs, timestamp: t, level: 4, length: history.length });
+    L.recordAttempt(history, {
+      correct: r.correct,
+      responseMs: r.responseMs,
+      answer: r.answer,
+      timestamp: t,
+      level: 4,
+      length: history.length,
+    });
   }
   return history;
 }
 
-/* ================= Recording: correctness, response time, length, attempts ================= */
+/* ================= Recording: correctness, response time, length, attempts, wrong answers ================= */
 
-test("recordAttempt tracks correct/incorrect, response time, length and attempt number", () => {
+test("recordAttempt tracks correct/incorrect, response time, length, attempt number and the typed wrong answer", () => {
   const h = L.createEmptyWordHistory("extraordinary", 6, 13);
   L.recordAttempt(h, { correct: true, responseMs: 2200, timestamp: 5000, level: 6, length: 13 });
   assert.equal(h.attempts, 1);
@@ -51,211 +57,183 @@ test("recordAttempt tracks correct/incorrect, response time, length and attempt 
   assert.equal(h.recentAttempts[0].attemptNumber, 1);
   assert.equal(h.recentAttempts[0].responseMs, 2200);
   assert.equal(h.lastResult, "correct");
+  assert.equal(h.lastWrongAnswer, null);
 
-  L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 6000, level: 6, length: 13 });
+  L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 6000, level: 6, length: 13, answer: "extrordinary" });
   assert.equal(h.attempts, 2);
   assert.equal(h.incorrect, 1);
   assert.equal(h.recentAttempts[1].attemptNumber, 2);
   assert.equal(h.lastResult, "incorrect");
-  assert.equal(h.inWrongList, true, "an incorrect answer flags the word into the wrong list");
+  assert.equal(h.lastWrongAnswer, "extrordinary", "the exact mistyped answer should be recorded");
+  assert.equal(h.recentAttempts[1].answer, "extrordinary");
+});
+
+test("a correct attempt does not store an 'answer' in the ring buffer (it's trivially the word itself)", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  L.recordAttempt(h, { correct: true, responseMs: 500, timestamp: 1000, answer: "cat" });
+  assert.equal(h.recentAttempts[0].answer, undefined);
 });
 
 test("recordAttempt handles multiple attempts and caps the detailed ring buffer without losing aggregate counts", () => {
   const h = L.createEmptyWordHistory("run", 4, 3);
   for (let i = 0; i < 30; i++) {
-    L.recordAttempt(h, { correct: i % 3 !== 0, responseMs: 800 + i, timestamp: 1000 + i, level: 4, length: 3 });
+    L.recordAttempt(h, { correct: i % 3 !== 0, responseMs: 800 + i, timestamp: 1000 + i, level: 4, length: 3, answer: i % 3 !== 0 ? undefined : "rnu" });
   }
   assert.equal(h.attempts, 30, "aggregate attempt count is never capped");
   assert.ok(h.recentAttempts.length <= L.CONFIG.maxRecentAttempts, "detailed history is capped for storage");
   assert.equal(h.recentAttempts[h.recentAttempts.length - 1].attemptNumber, 30, "ring buffer keeps the most recent attempts");
 });
 
-test("correct streak resets on an incorrect answer and accumulates on correct ones", () => {
-  const h = L.createEmptyWordHistory("cat", 4, 3);
-  play(h, [{ correct: true }, { correct: true }, { correct: false }, { correct: true }]);
-  assert.equal(h.correctStreak, 1);
-});
+/* ================= State classification: simple streak model ================= */
 
-/* ================= Memorization scoring: cold start ================= */
-
-test("a single correct (even fast) attempt must not reach Memorized", () => {
-  const h = L.createEmptyWordHistory("go", 4, 2);
-  L.recordAttempt(h, { correct: true, responseMs: 400, timestamp: 1000, level: 4, length: 2 });
-  const info = L.calculateMemorizationScore(h);
-  assert.notEqual(info.state, "memorized");
-});
-
-test("brand new (unattempted) word is state 'new' with score 0", () => {
+test("brand new (unattempted) word is state 'new'", () => {
   const h = L.createEmptyWordHistory("never-tested", 4, 12);
-  const info = L.calculateMemorizationScore(h);
-  assert.equal(info.state, "new");
-  assert.equal(info.score, 0);
+  assert.equal(L.classifyState(h), "new");
 });
 
-test("cold start: early attempts rely more on correctness than timing", () => {
-  const h = L.createEmptyWordHistory("bat", 4, 3);
-  // One correct attempt, no timing history yet at all.
-  L.recordAttempt(h, { correct: true, responseMs: null, timestamp: 1000, level: 4, length: 3 });
-  const info = L.calculateMemorizationScore(h);
-  assert.equal(info.timingScore, null, "timing has no signal yet");
-  assert.ok(info.score > 0, "correctness alone still moves the score off zero");
-});
-
-test("a consistently correct, fast, stable word can reach Memorized within a handful of attempts (not a long grind)", () => {
-  const h = L.createEmptyWordHistory("quick", 4, 5);
-  play(h, [
-    { correct: true, responseMs: 900 }, { correct: true, responseMs: 910 },
-    { correct: true, responseMs: 890 }, { correct: true, responseMs: 905 },
-  ]);
-  const info = L.calculateMemorizationScore(h);
-  assert.equal(h.attempts, 4);
-  assert.equal(info.state, "memorized", "4 solid attempts should be enough - repetition needed to reach Memorized was intentionally lowered");
-});
-
-test("timing's influence ramps up only as more timed data accumulates", () => {
-  const sparse = L.createEmptyWordHistory("sparse", 4, 6);
-  play(sparse, [{ correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 }]);
-  const sparseInfo = L.calculateMemorizationScore(sparse);
-
-  const rich = L.createEmptyWordHistory("rich", 4, 4);
-  play(rich, [
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 },
-  ]);
-  const richInfo = L.calculateMemorizationScore(rich);
-  assert.ok(richInfo.timingWeight > sparseInfo.timingWeight, "more timed samples => more timing weight");
-});
-
-test("one unusually slow outlier among many fast correct answers does not dominate the score", () => {
-  const steady = L.createEmptyWordHistory("steady", 4, 5);
-  play(steady, [
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-  ]);
-  const before = L.calculateMemorizationScore(steady).score;
-
-  const withOutlier = L.createEmptyWordHistory("steady2", 4, 5);
-  play(withOutlier, [
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 9000 }, // one wild outlier
-  ]);
-  const after = L.calculateMemorizationScore(withOutlier).score;
-
-  assert.ok(after > before * 0.6, "a single outlier should dent, not crater, the score");
-});
-
-/* ================= Memorization scoring: improvement & consistency ================= */
-
-test("improving response times over attempts raise the score vs a flat/no-timing baseline", () => {
-  const improving = L.createEmptyWordHistory("improve", 4, 6);
-  play(improving, [
-    { correct: true, responseMs: 3000 }, { correct: true, responseMs: 2600 },
-    { correct: true, responseMs: 1600 }, { correct: true, responseMs: 1200 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 900 },
-  ]);
-  const info = L.calculateMemorizationScore(improving);
-  assert.ok(info.timingScore > 0.5, "a clearly improving trend should score above neutral");
-});
-
-test("consistent response times score higher on the timing signal than wildly inconsistent ones", () => {
-  const consistent = L.createEmptyWordHistory("steadyc", 4, 5);
-  play(consistent, [
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1020 },
-    { correct: true, responseMs: 980 }, { correct: true, responseMs: 1010 },
-  ]);
-  const erratic = L.createEmptyWordHistory("erratic", 4, 5);
-  play(erratic, [
-    { correct: true, responseMs: 400 }, { correct: true, responseMs: 4000 },
-    { correct: true, responseMs: 300 }, { correct: true, responseMs: 5000 },
-  ]);
-  const consistentInfo = L.calculateMemorizationScore(consistent);
-  const erraticInfo = L.calculateMemorizationScore(erratic);
-  assert.ok(consistentInfo.timingScore > erraticInfo.timingScore);
-});
-
-/* ================= Word-length fairness (critical requirement) ================= */
-
-test("a longer word answered consistently at its OWN natural pace scores like a shorter word at its own pace", () => {
-  const short = L.createEmptyWordHistory("cat", 4, 3);
-  play(short, [
-    { correct: true, responseMs: 700 }, { correct: true, responseMs: 720 },
-    { correct: true, responseMs: 680 }, { correct: true, responseMs: 710 },
-    { correct: true, responseMs: 690 },
-  ]);
-
-  const long = L.createEmptyWordHistory("extraordinary", 6, 13);
-  play(long, [
-    { correct: true, responseMs: 3200 }, { correct: true, responseMs: 3250 },
-    { correct: true, responseMs: 3150 }, { correct: true, responseMs: 3220 },
-    { correct: true, responseMs: 3180 },
-  ]);
-
-  const shortInfo = L.calculateMemorizationScore(short);
-  const longInfo = L.calculateMemorizationScore(long);
-
-  assert.ok(
-    Math.abs(shortInfo.score - longInfo.score) < 0.05,
-    `long word should not be penalized purely for taking longer in absolute ms (short=${shortInfo.score}, long=${longInfo.score})`
-  );
-  assert.equal(shortInfo.state, longInfo.state);
-});
-
-test("a long word that is fast/consistent relative to ITS OWN history beats a long word that is slowing down relative to its own history", () => {
-  const solid = L.createEmptyWordHistory("understanding", 6, 13);
-  play(solid, [
-    { correct: true, responseMs: 2500 }, { correct: true, responseMs: 2450 },
-    { correct: true, responseMs: 2520 }, { correct: true, responseMs: 2480 },
-    { correct: true, responseMs: 2500 },
-  ]);
-  const slowingDown = L.createEmptyWordHistory("consequently", 6, 13);
-  play(slowingDown, [
-    { correct: true, responseMs: 1500 }, { correct: true, responseMs: 1900 },
-    { correct: true, responseMs: 2400 }, { correct: true, responseMs: 3200 },
-    { correct: true, responseMs: 4200 },
-  ]);
-  const solidInfo = L.calculateMemorizationScore(solid);
-  const slowingInfo = L.calculateMemorizationScore(slowingDown);
-  assert.ok(solidInfo.score > slowingInfo.score, "degrading relative to one's own baseline should score lower, independent of word length");
-});
-
-test("raw response time is never compared against a fixed ms-per-character rule or divided by word length", () => {
-  // A word so long that any naive responseTime/length or fixed-ms-per-char
-  // rule would read as "fast enough" or "too slow" independent of the
-  // word's own history. Here the *raw* times are large only because the
-  // word is long, but they are dead consistent - should score well.
-  const longWord = L.createEmptyWordHistory("internationalization", 6, 21);
-  play(longWord, [
-    { correct: true, responseMs: 6000 }, { correct: true, responseMs: 6050 },
-    { correct: true, responseMs: 5980 }, { correct: true, responseMs: 6020 },
-    { correct: true, responseMs: 6010 }, { correct: true, responseMs: 6015 },
-  ]);
-  const info = L.calculateMemorizationScore(longWord);
-  assert.equal(info.state, "memorized", "long-but-stable-relative-to-itself should still reach Memorized");
-});
-
-/* ================= Error rate / repeated incorrect ================= */
-
-test("repeated incorrect answers keep the score low and prevent Memorized", () => {
+test("a wrong answer is state 'incorrect'", () => {
   const h = L.createEmptyWordHistory("hard", 4, 4);
-  play(h, [
-    { correct: false, responseMs: 1000 }, { correct: false, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: false, responseMs: 1000 },
-    { correct: true, responseMs: 1000 },
-  ]);
-  const info = L.calculateMemorizationScore(h);
-  assert.notEqual(info.state, "memorized");
-  assert.ok(info.accuracy < 0.6);
+  L.recordAttempt(h, { correct: false, responseMs: 1000, timestamp: 1000 });
+  assert.equal(L.classifyState(h), "incorrect");
 });
 
-/* ================= Question selection: 80/10/10 ratio ================= */
+test("one correct answer (streak 1) is 'learning', not yet 'memorized'", () => {
+  const h = L.createEmptyWordHistory("go", 4, 2);
+  L.recordAttempt(h, { correct: true, responseMs: 400, timestamp: 1000 });
+  assert.equal(L.classifyState(h), "learning");
+});
+
+test("two consecutive correct answers reach 'memorized'", () => {
+  const h = L.createEmptyWordHistory("bat", 4, 3);
+  play(h, [{ correct: true }, { correct: true }]);
+  assert.equal(L.classifyState(h), "memorized");
+});
+
+test("a broken streak resets: memorized -> wrong answer -> back to 'incorrect', not just knocked down a notch", () => {
+  const h = L.createEmptyWordHistory("cup", 4, 3);
+  play(h, [{ correct: true }, { correct: true }]);
+  assert.equal(L.classifyState(h), "memorized");
+  play(h, [{ correct: false }]);
+  assert.equal(L.classifyState(h), "incorrect");
+  assert.equal(h.correctStreak, 0);
+});
+
+test("recovering after a reset still needs a fresh 2-streak, not credit for old attempts", () => {
+  const h = L.createEmptyWordHistory("dog", 4, 3);
+  play(h, [{ correct: true }, { correct: true }, { correct: false }, { correct: true }]);
+  assert.equal(L.classifyState(h), "learning", "only 1 correct since the reset - not memorized yet");
+  play(h, [{ correct: true }]);
+  assert.equal(L.classifyState(h), "memorized");
+});
+
+test("a long, slowly-typed word and a short, quickly-typed word both reach Memorized on the same 2-streak rule - the label is length/time independent", () => {
+  const shortWord = L.createEmptyWordHistory("cat", 4, 3);
+  play(shortWord, [{ correct: true, responseMs: 400 }, { correct: true, responseMs: 380 }]);
+
+  const longWord = L.createEmptyWordHistory("internationalization", 6, 21);
+  play(longWord, [{ correct: true, responseMs: 9000 }, { correct: true, responseMs: 9500 }]);
+
+  assert.equal(L.classifyState(shortWord), "memorized");
+  assert.equal(L.classifyState(longWord), "memorized");
+});
+
+/* ================= Wrong-answer review data ================= */
+
+test("recentWrongAnswersOf returns distinct past wrong answers, most recent first, capped", () => {
+  const h = L.createEmptyWordHistory("weird", 4, 5);
+  play(h, [
+    { correct: false, answer: "wierd" },
+    { correct: true },
+    { correct: false, answer: "werid" },
+    { correct: false, answer: "wierd" }, // repeat of the first mistake
+    { correct: false, answer: "weerd" },
+  ]);
+  const recent = L.recentWrongAnswersOf(h, 3);
+  assert.deepEqual(recent, ["weerd", "wierd", "werid"], "most recent first, de-duplicated, capped at 3");
+});
+
+test("recentWrongAnswersOf is empty for a word with no wrong answers yet", () => {
+  const h = L.createEmptyWordHistory("easy", 4, 4);
+  play(h, [{ correct: true }]);
+  assert.deepEqual(L.recentWrongAnswersOf(h), []);
+});
+
+test("diffChars highlights a one-letter swap between the typed answer and the correct spelling", () => {
+  const ops = L.diffChars("wierd", "weird");
+  const correctChars = ops.map((o) => o.char).join("");
+  assert.equal(correctChars, "weird", "diff is aligned against the correct word's letters");
+  assert.ok(ops.some((o) => !o.match), "at least one letter should be flagged as not matched given the swap");
+});
+
+test("diffChars marks every letter matched for an exact match", () => {
+  const ops = L.diffChars("weird", "weird");
+  assert.ok(ops.every((o) => o.match));
+});
+
+/* ================= Review-priority weighting (time-based) ================= */
+
+test("computeGlobalAverageResponseMs averages avgCorrectResponseMs across all words with timing data", () => {
+  const historyStore = {};
+  const a = L.createEmptyWordHistory("a", 4, 1);
+  play(a, [{ correct: true, responseMs: 1000 }]);
+  historyStore.a = a;
+  const b = L.createEmptyWordHistory("b", 4, 1);
+  play(b, [{ correct: true, responseMs: 2000 }]);
+  historyStore.b = b;
+  assert.equal(L.computeGlobalAverageResponseMs(historyStore), 1500);
+});
+
+test("computeGlobalAverageResponseMs is null when there is no timing data yet", () => {
+  assert.equal(L.computeGlobalAverageResponseMs({}), null);
+});
+
+test("reviewPriorityWeight gives a word slower than the user's overall average a higher weight than one faster than average", () => {
+  const now = 1000000;
+  const globalAvg = 1000;
+  const slowWord = { avgCorrectResponseMs: 2000, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
+  const fastWord = { avgCorrectResponseMs: 500, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
+  const slowWeight = L.reviewPriorityWeight(slowWord, globalAvg, now);
+  const fastWeight = L.reviewPriorityWeight(fastWord, globalAvg, now);
+  assert.ok(slowWeight > fastWeight, `slower-than-average word should weigh more (slow=${slowWeight}, fast=${fastWeight})`);
+});
+
+test("reviewPriorityWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
+  const now = 1000000;
+  const wordInfo = { avgCorrectResponseMs: 2000 };
+  const justTested = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 1000 }), 1000, now);
+  const testedDaysAgo = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 10 * 24 * 60 * 60 * 1000 }), 1000, now);
+  assert.ok(testedDaysAgo > justTested, "a word tested moments ago should be less eager to repeat than the same word tested days ago");
+});
+
+test("reviewPriorityWeight falls back to a neutral weight when there's no timing data yet for the word", () => {
+  const w = L.reviewPriorityWeight({ lastSeen: 0 }, 1000, 1000000);
+  assert.ok(w > 0);
+});
+
+test("weightedShuffle picks the higher-weight item first far more often than chance, but not every single time", () => {
+  const items = ["slow", "fast"];
+  const weights = [3.0, 0.3];
+  // One generator reused across all trials (not reseeded per trial): a
+  // freshly-seeded LCG's very first draw is biased toward 0 for small
+  // sequential seeds, which would otherwise skew a test this sensitive.
+  const rnd = seededRandom(42);
+  let slowFirstCount = 0;
+  const trials = 300;
+  for (let i = 0; i < trials; i++) {
+    const ordered = L.weightedShuffle(items, weights, rnd);
+    if (ordered[0] === "slow") slowFirstCount += 1;
+  }
+  const rate = slowFirstCount / trials;
+  assert.ok(rate > 0.7, `slower item should win the vast majority of draws (rate=${rate})`);
+  assert.ok(rate < 1, "it should not be a rigid, deterministic guarantee every single trial");
+});
+
+/* ================= Question selection: 80/10/10 regular test ================= */
 
 test("computeTestTargets scales the 80/10/10 ratio to arbitrary sizes", () => {
-  assert.deepEqual(L.computeTestTargets(80), { new: 64, incorrect: 8, correct: 8 });
+  assert.deepEqual(L.computeTestTargets(80), { new: 64, incorrect: 8, learning: 8 });
   const t20 = L.computeTestTargets(20);
-  assert.equal(t20.new + t20.incorrect + t20.correct, 20);
+  assert.equal(t20.new + t20.incorrect + t20.learning, 20);
   assert.equal(t20.new, 16);
 });
 
@@ -263,27 +241,27 @@ test("selectTestQuestions hits the target 80/10/10 mix when all categories have 
   const historyStore = {};
   const newWords = makePool(200, 4, "new");
   const incorrectWords = makePool(50, 5, "bad");
-  const correctWords = makePool(50, 6, "good");
+  const learningWords = makePool(50, 6, "mid");
 
   for (const w of incorrectWords) {
     const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
     L.recordAttempt(h, { correct: false, responseMs: 1200, timestamp: 1000, level: w.level, length: w.word.length });
     historyStore[w.word.toLowerCase()] = h;
   }
-  for (const w of correctWords) {
+  for (const w of learningWords) {
     const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
     L.recordAttempt(h, { correct: true, responseMs: 1200, timestamp: 1000, level: w.level, length: w.word.length });
     historyStore[w.word.toLowerCase()] = h;
   }
 
-  const pool = newWords.concat(incorrectWords, correctWords);
+  const pool = newWords.concat(incorrectWords, learningWords);
   const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(42) });
 
   assert.equal(selection.length, 80);
   const cats = L.categorizeWords(selection, historyStore);
   assert.equal(cats.unseen.length, 64);
-  assert.equal(cats.prevIncorrect.length, 8);
-  assert.equal(cats.prevCorrect.length, 8);
+  assert.equal(cats.incorrect.length, 8);
+  assert.equal(cats.learning.length, 8);
 });
 
 test("selectTestQuestions never duplicates a word within one test", () => {
@@ -302,18 +280,15 @@ test("selectTestQuestions never duplicates a word within one test", () => {
 
 test("selectTestQuestions falls back intelligently when a category is short on candidates", () => {
   const historyStore = {};
-  // Only 2 previously-incorrect words and 1 previously-correct word exist,
-  // far short of the 8/8 the 80/10/10 ratio would want at size 80. Plenty
-  // of unseen words exist to redistribute into.
   const pool = makePool(90, 4, "u");
-  const incorrect = pool.slice(0, 2);
-  const correctOnes = pool.slice(2, 3);
-  for (const w of incorrect) {
+  const incorrectFew = pool.slice(0, 2);
+  const learningFew = pool.slice(2, 3);
+  for (const w of incorrectFew) {
     const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
     L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
     historyStore[w.word.toLowerCase()] = h;
   }
-  for (const w of correctOnes) {
+  for (const w of learningFew) {
     const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
     L.recordAttempt(h, { correct: true, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
     historyStore[w.word.toLowerCase()] = h;
@@ -332,166 +307,118 @@ test("selectTestQuestions returns at most the pool size when the pool itself is 
   assert.equal(new Set(selection.map((w) => w.word)).size, 15);
 });
 
-test("selectTestQuestions prioritizes lower-scoring (weaker) words within the previously-incorrect bucket", () => {
+test("selectTestQuestions excludes Memorized words entirely - they've graduated out of the rotation", () => {
   const historyStore = {};
-  const pool = makePool(4, 4, "w");
-  // weak: many failures, strong: one failure long ago then recovering pattern kept as lastResult=incorrect via a final miss
-  const weak = pool[0], strong = pool[1], filler1 = pool[2], filler2 = pool[3];
+  const memorizedWord = makeWord("done", 4);
+  const h = L.createEmptyWordHistory("done", 4, 4);
+  play(h, [{ correct: true }, { correct: true }]);
+  historyStore.done = h;
 
-  const weakHist = L.createEmptyWordHistory(weak.word, 4, weak.word.length);
-  play(weakHist, [{ correct: false }, { correct: false }, { correct: false }]);
-  historyStore[weak.word.toLowerCase()] = weakHist;
-
-  const strongHist = L.createEmptyWordHistory(strong.word, 4, strong.word.length);
-  play(strongHist, [{ correct: true }, { correct: true }, { correct: false }]);
-  historyStore[strong.word.toLowerCase()] = strongHist;
-
-  const selection = L.selectTestQuestions({ pool: [weak, strong], historyStore, size: 2, random: seededRandom(9) });
-  // Both should be picked (only 2 words, target incorrect=0 but redistribution fills them in);
-  // this just verifies rankCandidates ordering doesn't crash and includes the weaker word.
-  const words = selection.map((w) => w.word);
-  assert.ok(words.includes(weak.word));
+  const pool = [memorizedWord];
+  const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(5) });
+  assert.equal(selection.length, 0, "the only word in the pool is Memorized, so there is nothing left to select");
 });
 
-/* ================= Weighted (not rigid) review selection ================= */
+/* ================= Question selection: 70/30 Review Test ================= */
 
-test("reviewPriorityWeight gives a weaker word a much higher weight than a strong one", () => {
-  const now = 1000000;
-  const weakInfo = { score: 0.1 };
-  const strongInfo = { score: 0.9 };
-  const weakWeight = L.reviewPriorityWeight(weakInfo, now - 5 * 24 * 60 * 60 * 1000, now);
-  const strongWeight = L.reviewPriorityWeight(strongInfo, now - 5 * 24 * 60 * 60 * 1000, now);
-  assert.ok(weakWeight > strongWeight * 3, `weak word should dominate the weighting (weak=${weakWeight}, strong=${strongWeight})`);
+test("computeReviewTargets scales the 70/30 ratio to arbitrary sizes", () => {
+  assert.deepEqual(L.computeReviewTargets(20), { incorrect: 14, learning: 6 });
+  assert.deepEqual(L.computeReviewTargets(10), { incorrect: 7, learning: 3 });
 });
 
-test("reviewPriorityWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
-  const now = 1000000;
-  const info = { score: 0.3 };
-  const justTested = L.reviewPriorityWeight(info, now - 1000, now);
-  const testedDaysAgo = L.reviewPriorityWeight(info, now - 10 * 24 * 60 * 60 * 1000, now);
-  assert.ok(testedDaysAgo > justTested, "a word tested moments ago should be less eager to repeat than the same word tested days ago");
-});
-
-test("weightedShuffle picks the higher-weight item first far more often than chance, but not every single time", () => {
-  const items = ["weak", "strong"];
-  const weights = [1.0, 0.05];
-  // One generator reused across all trials (not reseeded per trial): a
-  // freshly-seeded LCG's very first draw is biased toward 0 for small
-  // sequential seeds, which would otherwise skew a test this sensitive
-  // (only 2 draws happen per weightedShuffle call).
-  const rnd = seededRandom(42);
-  let weakFirstCount = 0;
-  const trials = 300;
-  for (let i = 0; i < trials; i++) {
-    const ordered = L.weightedShuffle(items, weights, rnd);
-    if (ordered[0] === "weak") weakFirstCount += 1;
+test("buildReviewTestList hits the 70/30 incorrect/learning mix when both have ample supply", () => {
+  const historyStore = {};
+  const incorrectWords = makePool(50, 4, "bad");
+  const learningWords = makePool(50, 5, "mid");
+  for (const w of incorrectWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
   }
-  const rate = weakFirstCount / trials;
-  assert.ok(rate > 0.8, `weak item should win the vast majority of draws (rate=${rate})`);
-  assert.ok(rate < 1, "it should not be a rigid, deterministic guarantee every single trial");
-});
-
-test("selectTestQuestions' incorrect-bucket slot favors the weaker of two candidates roughly in proportion to weight, not all-or-nothing", () => {
-  const historyStore = {};
-  // Plenty of unseen filler so the "new" bucket can absorb any
-  // redistribution deficit instead of it spilling into the incorrect
-  // bucket and forcing both candidates in regardless of weighting.
-  const filler = makePool(30, 4, "fill");
-  const words = makePool(2, 4, "ic");
-  const weak = words[0];
-  const strong = words[1];
-
-  const weakHist = L.createEmptyWordHistory(weak.word, 4, weak.word.length);
-  play(weakHist, [{ correct: false }]); // attempts=1, correct=0 -> low score
-  historyStore[weak.word.toLowerCase()] = weakHist;
-
-  const strongHist = L.createEmptyWordHistory(strong.word, 4, strong.word.length);
-  // Mostly correct history, but most recent answer was wrong (still lands
-  // in the "incorrect" bucket) - much higher score than `weak` even so.
-  play(strongHist, [
-    { correct: true }, { correct: true }, { correct: true },
-    { correct: true }, { correct: true }, { correct: false },
-  ]);
-  historyStore[strong.word.toLowerCase()] = strongHist;
-
-  const pool = filler.concat([weak, strong]);
-  // size=10 -> new target=8, incorrect target=1, correct target=1 (no
-  // correct-bucket candidates exist, so that slot redistributes into the
-  // 30-word-deep "new" bucket rather than forcing the second incorrect
-  // candidate in) - the incorrect bucket's single slot is a genuine choice
-  // between exactly `weak` and `strong` each trial.
-  const rnd = seededRandom(42); // one generator reused across trials - see note above
-  let weakPicked = 0;
-  const trials = 400;
-  for (let i = 0; i < trials; i++) {
-    const selection = L.selectTestQuestions({ pool: pool, historyStore: historyStore, size: 10, random: rnd });
-    const picked = L.categorizeWords(selection, historyStore).prevIncorrect[0];
-    assert.ok(picked, "the incorrect bucket's one slot should always be filled here");
-    if (picked.word === weak.word) weakPicked += 1;
+  for (const w of learningWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: true, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
   }
-  const rate = weakPicked / trials;
-  // Not a guarantee (that would be the old rigid always-pick-the-weakest
-  // behavior) but a clear, large lean toward the weaker word.
-  assert.ok(rate > 0.7, `weaker word should win most of the time (rate=${rate})`);
-  assert.ok(rate < 1, "the stronger word should still occasionally get picked - not a rigid cutoff");
+  const pool = incorrectWords.concat(learningWords);
+  const selection = L.buildReviewTestList({ pool, historyStore, size: 20, random: seededRandom(11) });
+  assert.equal(selection.length, 20);
+  const cats = L.categorizeWords(selection, historyStore);
+  assert.equal(cats.incorrect.length, 14);
+  assert.equal(cats.learning.length, 6);
 });
 
-/* ================= Review Test ================= */
-
-test("buildReviewTestList only includes words currently in the wrong list", () => {
+test("buildReviewTestList falls back between incorrect and learning when one category is short", () => {
   const historyStore = {};
-  const pool = makePool(5, 4, "r");
-  const wrongOne = pool[0];
-  const fineOne = pool[1];
-
-  const wrongHist = L.createEmptyWordHistory(wrongOne.word, 4, wrongOne.word.length);
-  L.recordAttempt(wrongHist, { correct: false, responseMs: 1000, timestamp: 1000, level: 4, length: wrongOne.word.length });
-  historyStore[wrongOne.word.toLowerCase()] = wrongHist;
-
-  const fineHist = L.createEmptyWordHistory(fineOne.word, 4, fineOne.word.length);
-  L.recordAttempt(fineHist, { correct: true, responseMs: 1000, timestamp: 1000, level: 4, length: fineOne.word.length });
-  historyStore[fineOne.word.toLowerCase()] = fineHist;
-
-  const list = L.buildReviewTestList({ pool, historyStore, random: seededRandom(2) });
-  assert.equal(list.length, 1);
-  assert.equal(list[0].word, wrongOne.word);
-});
-
-test("applyReviewOutcome 'removeCorrect' removes only words answered correctly this round; 'keepAll' changes nothing", () => {
-  const historyStore = {};
-  const words = ["alpha", "beta"];
-  for (const w of words) {
-    const h = L.createEmptyWordHistory(w, 4, w.length);
-    L.recordAttempt(h, { correct: false, responseMs: 1000, timestamp: 1000, level: 4, length: w.length });
-    historyStore[w] = h;
+  const pool = makePool(30, 4, "u");
+  const incorrectFew = pool.slice(0, 2);
+  const learningMany = pool.slice(2, 30);
+  for (const w of incorrectFew) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
   }
-  assert.equal(historyStore.alpha.inWrongList, true);
-  assert.equal(historyStore.beta.inWrongList, true);
-
-  // Simulate a review round: alpha answered correctly this time, beta still wrong.
-  const records = [{ word: "alpha", correct: true }, { word: "beta", correct: false }];
-
-  // keepAll: nothing changes.
-  L.applyReviewOutcome(historyStore, records, "keepAll");
-  assert.equal(historyStore.alpha.inWrongList, true);
-  assert.equal(historyStore.beta.inWrongList, true);
-
-  // removeCorrect: only alpha (answered correctly) leaves the wrong list.
-  L.applyReviewOutcome(historyStore, records, "removeCorrect");
-  assert.equal(historyStore.alpha.inWrongList, false);
-  assert.equal(historyStore.beta.inWrongList, true);
+  for (const w of learningMany) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: true, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const selection = L.buildReviewTestList({ pool, historyStore, size: 20, random: seededRandom(4) });
+  assert.equal(selection.length, 20, "shortfall in incorrect should be made up from learning");
 });
 
-test("Review Test recording uses the same recordAttempt/scoring system as the regular test", () => {
-  const h = L.createEmptyWordHistory("shared", 4, 6);
-  // Simulate answering once via "regular test" and once via "review test" -
-  // both just call recordAttempt/calculateMemorizationScore, so behavior
-  // must be identical regardless of which mode called it.
-  L.recordAttempt(h, { correct: true, responseMs: 1000, timestamp: 1000, level: 4, length: 6 });
-  const afterRegular = L.calculateMemorizationScore(h);
-  L.recordAttempt(h, { correct: true, responseMs: 1000, timestamp: 2000, level: 4, length: 6 });
-  const afterReview = L.calculateMemorizationScore(h);
-  assert.ok(afterReview.score >= afterRegular.score);
+test("buildReviewTestList respects a custom user-chosen size", () => {
+  const historyStore = {};
+  const pool = makePool(30, 4, "u");
+  for (const w of pool) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const selection = L.buildReviewTestList({ pool, historyStore, size: 5, random: seededRandom(2) });
+  assert.equal(selection.length, 5);
+});
+
+test("buildReviewTestList size=0 means 'all available'", () => {
+  const historyStore = {};
+  const pool = makePool(7, 4, "u");
+  for (const w of pool) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const selection = L.buildReviewTestList({ pool, historyStore, size: 0, random: seededRandom(2) });
+  assert.equal(selection.length, 7);
+});
+
+test("buildReviewTestList with no size given defaults to CONFIG.defaultReviewSize, capped to what's available", () => {
+  const historyStore = {};
+  const pool = makePool(200, 4, "u");
+  for (const w of pool) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const selection = L.buildReviewTestList({ pool, historyStore, random: seededRandom(2) });
+  assert.equal(selection.length, L.CONFIG.defaultReviewSize);
+});
+
+test("buildReviewTestList excludes Memorized and never-attempted words", () => {
+  const historyStore = {};
+  const memorizedWord = makeWord("done", 4);
+  const h = L.createEmptyWordHistory("done", 4, 4);
+  play(h, [{ correct: true }, { correct: true }]);
+  historyStore.done = h;
+
+  const newWord = makeWord("fresh", 4); // never attempted, no history entry at all
+
+  const selection = L.buildReviewTestList({ pool: [memorizedWord, newWord], historyStore, random: seededRandom(1) });
+  assert.equal(selection.length, 0);
+});
+
+test("buildReviewTestList returns an empty list (not an error) when nothing needs review", () => {
+  const selection = L.buildReviewTestList({ pool: makePool(5, 4, "x"), historyStore: {}, random: seededRandom(1) });
+  assert.deepEqual(selection, []);
 });
 
 /* ================= Persistence / migration / backward compatibility ================= */
@@ -505,7 +432,20 @@ test("migrateWordEntry upgrades legacy v1 {box,due,correct,wrong,lastSeen} shape
   assert.equal(migrated.lastSeen, 999000);
   assert.equal(migrated.word, "legacy");
   assert.equal(migrated.level, 5);
+  assert.equal(migrated.lastWrongAnswer, null);
   assert.ok(Array.isArray(migrated.recentAttempts));
+});
+
+test("migrateWordEntry upgrades an intermediate score-based v2 entry, dropping unused fields harmlessly", () => {
+  const scoreEraEntry = {
+    word: "keep", level: 4, length: 4, attempts: 3, correct: 2, incorrect: 1, correctStreak: 0,
+    avgCorrectResponseMs: 1200, recentResponseMs: 1300, recentAttempts: [], firstSeen: 100, lastSeen: 200,
+    lastResult: "incorrect", inWrongList: true, box: 0, due: 0,
+  };
+  const migrated = L.migrateWordEntry(scoreEraEntry, "keep", 4, 4);
+  assert.equal(migrated.attempts, 3);
+  assert.equal(migrated.correct, 2);
+  assert.equal(L.classifyState(migrated), "incorrect");
 });
 
 test("migrateWordEntry is idempotent on an already-current entry and fills any newly-added defaults", () => {
@@ -530,12 +470,20 @@ test("migrateProgressStore migrates an entire legacy store and preserves per-wor
   assert.equal(migrated.abandon.attempts, 4);
   assert.equal(migrated.abandon.level, 4);
   assert.equal(migrated.zebra.incorrect, 1);
-  assert.equal(migrated.zebra.inWrongList, true, "a legacy box-0 failure is treated as still on the wrong list");
+  assert.equal(L.classifyState(migrated.zebra), "incorrect");
 });
 
 test("migrateProgressStore on an empty/missing store returns an empty object, not an error", () => {
   assert.deepEqual(L.migrateProgressStore(null, {}), {});
   assert.deepEqual(L.migrateProgressStore(undefined, {}), {});
+});
+
+test("a word's history survives a JSON save/reload round-trip with identical state classification", () => {
+  const h = L.createEmptyWordHistory("persist", 4, 7);
+  play(h, [{ correct: true }, { correct: false, answer: "persits" }, { correct: true }]);
+  const reloaded = JSON.parse(JSON.stringify(h));
+  assert.equal(L.classifyState(reloaded), L.classifyState(h));
+  assert.equal(reloaded.lastWrongAnswer, "persits");
 });
 
 /* ================= Progress summary ================= */
@@ -545,11 +493,7 @@ test("computeProgressSummary reports counts by state and by level, plus overall 
   const pool = [makeWord("a", 4), makeWord("b", 4), makeWord("c", 5)];
 
   const ha = L.createEmptyWordHistory("a", 4, 1);
-  play(ha, [
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-    { correct: true, responseMs: 1000 }, { correct: true, responseMs: 1000 },
-  ]);
+  play(ha, [{ correct: true }, { correct: true }]);
   historyStore.a = ha;
 
   const hb = L.createEmptyWordHistory("b", 4, 1);
@@ -562,29 +506,26 @@ test("computeProgressSummary reports counts by state and by level, plus overall 
   assert.equal(summary.totalEncountered, 2);
   assert.equal(summary.counts.new, 1);
   assert.equal(summary.counts.memorized, 1);
-  assert.equal(summary.counts.learning, 1);
+  assert.equal(summary.counts.incorrect, 1);
   assert.equal(summary.byLevel[4].total, 2);
   assert.equal(summary.byLevel[5].total, 1);
   assert.ok(summary.overallAccuracy > 0 && summary.overallAccuracy < 1);
 });
 
-test("computeWordDetail exposes the per-word fields needed for the Progress word list", () => {
+test("computeWordDetail exposes streak, wrong-answer history, and state for the Progress word list", () => {
   const historyStore = {};
   const w = makeWord("detail", 5);
   const h = L.createEmptyWordHistory("detail", 5, 6);
-  L.recordAttempt(h, { correct: true, responseMs: 1500, timestamp: 1000, level: 5, length: 6 });
+  play(h, [{ correct: false, answer: "detial" }, { correct: true, responseMs: 1500 }]);
   historyStore.detail = h;
 
   const detail = L.computeWordDetail(w, historyStore);
   assert.equal(detail.word, "detail");
   assert.equal(detail.level, 5);
-  assert.equal(detail.attempts, 1);
+  assert.equal(detail.attempts, 2);
   assert.equal(detail.correct, 1);
-  assert.equal(detail.avgCorrectResponseMs, 1500);
-  assert.ok(["new", "learning", "review", "memorized"].includes(detail.state));
-  // Sub-scores so the UI can explain a low score (e.g. "confidence is only
-  // 17% because you've only answered this once" - not a speed penalty).
-  assert.ok(detail.accuracy > 0 && detail.accuracy <= 1);
-  assert.ok(detail.confidence > 0 && detail.confidence <= 1);
-  assert.equal(detail.timingScore, null, "one attempt is not enough timed data for a timing signal yet");
+  assert.equal(detail.correctStreak, 1);
+  assert.equal(detail.lastWrongAnswer, "detial");
+  assert.deepEqual(detail.recentWrongAnswers, ["detial"]);
+  assert.equal(detail.state, "learning");
 });

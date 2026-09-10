@@ -39,7 +39,7 @@ function saveJSON(key, value) {
 // a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], rate: 0.9, sessionSize: 80 },
+  { levels: [4, 5, 6], rate: 0.9, sessionSize: 80, reviewSize: 20 },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -53,9 +53,11 @@ function saveSettings() {
 
 // Fetches (creating if needed) the history entry for a vocab item and
 // records one answer into it. Used by BOTH the Vocabulary Test and the
-// Review Test, so the two modes share one memorization system rather than
-// drifting apart, per the app's design.
-function recordResult(item, correct, responseMs) {
+// Review Test, so the two modes share one system rather than drifting
+// apart, per the app's design. `answer` is the exact text the user typed -
+// recorded (only when wrong) so a mistake can be reviewed later instead of
+// just a bare correct/incorrect flag.
+function recordResult(item, correct, responseMs, answer) {
   const key = item.word.toLowerCase();
   if (!progressStore[key]) {
     progressStore[key] = Logic.createEmptyWordHistory(item.word, item.level, item.word.length);
@@ -65,6 +67,7 @@ function recordResult(item, correct, responseMs) {
   Logic.recordAttempt(history, {
     correct: correct,
     responseMs: responseMs,
+    answer: answer,
     timestamp: Date.now(),
     level: item.level,
     length: item.word.length,
@@ -322,6 +325,23 @@ document.getElementById("session-size-presets").addEventListener("click", (e) =>
   setSessionSize(Number(btn.dataset.size));
 });
 
+function setReviewSize(size) {
+  const clamped = Math.max(0, Math.floor(size) || 0);
+  settings.reviewSize = clamped;
+  document.getElementById("review-size").value = String(clamped);
+  saveSettings();
+}
+
+document.getElementById("review-size").addEventListener("change", (e) => {
+  setReviewSize(Number(e.target.value));
+});
+
+document.getElementById("review-size-presets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-size]");
+  if (!btn) return;
+  setReviewSize(Number(btn.dataset.size));
+});
+
 /* ---------- Shared quiz mechanics (used by both Vocabulary Test and Review Test) ---------- */
 
 // A self-relative note about this attempt's speed vs THIS word's own past
@@ -438,7 +458,7 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
   const correct = guess === item.word.toLowerCase();
   const elapsed = Date.now() - vocabTest.wordShownAt;
 
-  const { priorAvg } = recordResult(item, correct, elapsed);
+  const { priorAvg } = recordResult(item, correct, elapsed, guess);
   vocabTest.answered = true;
   input.disabled = true;
   if (correct) vocabTest.correctCount += 1;
@@ -521,7 +541,7 @@ document.getElementById("start-review-btn").addEventListener("click", () => {
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
-  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore });
+  reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: settings.reviewSize });
   reviewTest.index = 0;
   reviewTest.records = [];
 
@@ -584,7 +604,7 @@ document.getElementById("rev-form").addEventListener("submit", (e) => {
   const correct = guess === item.word.toLowerCase();
   const elapsed = Date.now() - reviewTest.wordShownAt;
 
-  const { priorAvg } = recordResult(item, correct, elapsed);
+  const { priorAvg } = recordResult(item, correct, elapsed, guess);
   reviewTest.answered = true;
   input.disabled = true;
   reviewTest.records.push({ word: item.word, correct: correct, responseMs: elapsed, priorAvg: priorAvg });
@@ -643,38 +663,18 @@ function finishReview() {
   wordsDiv.innerHTML = "";
   const p = document.createElement("p");
   p.className = "hint";
-  p.textContent = "本回合複習的單字（點擊查看中文意思）：";
+  // A word's state updates the instant it's answered - answering an
+  // incorrect word correctly here already moved it out of "incorrect"
+  // (into "learning" or straight to "memorized" on a 2nd correct in a
+  // row); no separate confirmation step is needed.
+  p.textContent = "本回合複習的單字（點擊查看中文意思，答對的單字已自動更新狀態）：";
   wordsDiv.appendChild(p);
   const holder = document.createElement("div");
   wordsDiv.appendChild(holder);
   renderWordChipList(holder, reviewTest.list);
 
-  document.getElementById("rev-outcome-prompt").classList.remove("hidden");
-  document.getElementById("rev-outcome-note").classList.add("hidden");
-  document.getElementById("rev-keep-btn").disabled = false;
-  document.getElementById("rev-remove-btn").disabled = false;
-
   document.getElementById("rev-summary").classList.remove("hidden");
 }
-
-function settleReviewOutcome(mode, noteText) {
-  Logic.applyReviewOutcome(progressStore, reviewTest.records, mode);
-  saveProgress();
-  document.getElementById("rev-outcome-prompt").classList.add("hidden");
-  const note = document.getElementById("rev-outcome-note");
-  note.textContent = noteText;
-  note.classList.remove("hidden");
-  document.getElementById("rev-keep-btn").disabled = true;
-  document.getElementById("rev-remove-btn").disabled = true;
-}
-
-document.getElementById("rev-keep-btn").addEventListener("click", () => {
-  settleReviewOutcome("keepAll", "已保留全部單字在答錯清單中。");
-});
-document.getElementById("rev-remove-btn").addEventListener("click", () => {
-  const removedCount = reviewTest.records.filter((r) => r.correct).length;
-  settleReviewOutcome("removeCorrect", `已將本次答對的 ${removedCount} 個單字從答錯清單移除。`);
-});
 
 document.getElementById("rev-again-btn").addEventListener("click", () => {
   document.getElementById("start-review-btn").click();
@@ -683,7 +683,7 @@ document.getElementById("rev-home-btn").addEventListener("click", () => showView
 
 /* ---------- Progress view ---------- */
 
-const STATE_LABELS = { new: "尚未測驗", learning: "學習中", review: "待複習", memorized: "已熟記" };
+const STATE_LABELS = { new: "尚未測驗", incorrect: "答錯待複習", learning: "學習中", memorized: "已熟記" };
 
 let progressFilter = "attempted";
 let progressSearch = "";
@@ -714,11 +714,11 @@ function renderProgress() {
     <div class="stat-box"><span class="num">${summary.totalEncountered}</span><span class="label">已練習過</span></div>
     <div class="stat-box"><span class="num">${summary.counts.memorized}</span><span class="label">已熟記</span></div>
     <div class="stat-box"><span class="num">${summary.counts.learning}</span><span class="label">學習中</span></div>
-    <div class="stat-box"><span class="num">${summary.counts.review}</span><span class="label">待複習</span></div>
-    <div class="stat-box"><span class="num">${VOCAB.filter((w) => { const h = progressStore[w.word.toLowerCase()]; return h && h.inWrongList; }).length}</span><span class="label">答錯清單</span></div>
+    <div class="stat-box"><span class="num">${summary.counts.incorrect}</span><span class="label">答錯待複習</span></div>
     <div class="stat-box"><span class="num">${formatPercent(summary.overallAccuracy)}</span><span class="label">整體正確率</span></div>
     <div class="stat-box"><span class="num">${formatPercent(summary.memorizationRate)}</span><span class="label">熟記率</span></div>
     <div class="stat-box"><span class="num">${formatPercent(summary.recentAccuracy)}</span><span class="label">近期正確率</span></div>
+    <div class="stat-box"><span class="num">${formatMs(summary.globalAverageResponseMs)}</span><span class="label">平均反應時間</span></div>
   `;
 
   let trendText = "尚無足夠的作答紀錄可分析反應時間趨勢。";
@@ -727,18 +727,19 @@ function renderProgress() {
     else if (summary.responseTimeTrend < -0.05) trendText = "近期反應時間有變慢的趨勢，可能需要多複習。";
     else trendText = "近期反應時間大致穩定。";
   }
-  document.getElementById("progress-trend-hint").textContent = trendText;
+  document.getElementById("progress-trend-hint").textContent =
+    `${trendText} 複習測驗會優先挑選比你「平均反應時間」慢的單字加強練習。`;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {
-      const s = summary.byLevel[lvl] || { total: 0, new: 0, learning: 0, review: 0, memorized: 0 };
+      const s = summary.byLevel[lvl] || { total: 0, new: 0, incorrect: 0, learning: 0, memorized: 0 };
       const total = s.total || 1;
       return `
         <div class="level-stat-row">
           <div class="level-stat-head"><span>Level ${lvl}</span><span>已熟記 ${s.memorized} / ${s.total}</span></div>
           <div class="level-stat-bar">
             <div class="seg seg-memorized" style="width:${(s.memorized / total) * 100}%"></div>
-            <div class="seg seg-review" style="width:${(s.review / total) * 100}%"></div>
+            <div class="seg seg-incorrect" style="width:${(s.incorrect / total) * 100}%"></div>
             <div class="seg seg-learning" style="width:${(s.learning / total) * 100}%"></div>
             <div class="seg seg-new" style="width:${(s.new / total) * 100}%"></div>
           </div>
@@ -748,6 +749,28 @@ function renderProgress() {
   document.getElementById("progress-levels").innerHTML = levelsHTML;
 
   renderWordTable();
+}
+
+// Renders the correct spelling with the letters the user has NOT
+// previously typed correctly (per the most recent mistake) highlighted,
+// plus what they actually typed - so "wierd" vs "weird" visually shows
+// the swapped letters instead of just two bare strings.
+function renderWrongAnswerCell(detail) {
+  if (!detail.lastWrongAnswer) return "—";
+  const ops = Logic.diffChars(detail.lastWrongAnswer, detail.word);
+  const correctHtml = ops
+    .map((o) => (o.match ? escapeHtml(o.char) : `<span class="diff-miss">${escapeHtml(o.char)}</span>`))
+    .join("");
+  const title = detail.recentWrongAnswers.length
+    ? `最近幾次打錯：${detail.recentWrongAnswers.join("、")}`
+    : "";
+  return `<span title="${escapeHtml(title)}">${correctHtml}<br><span class="muted">你打的：${escapeHtml(detail.lastWrongAnswer)}</span></span>`;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
 }
 
 function renderWordTable() {
@@ -776,14 +799,12 @@ function renderWordTable() {
   const rows = shown
     .map(({ detail }) => `
       <tr>
-        <td class="word-cell">${detail.word}${detail.inWrongList ? ' <span class="wrong-flag" title="在答錯清單中">⚠️</span>' : ""}</td>
+        <td class="word-cell">${detail.word}</td>
         <td>${detail.level}</td>
         <td>${detail.correct} / ${detail.incorrect}</td>
-        <td title="正確率（含平滑修正，避免 1 次全對就算 100%）">${formatPercent(detail.accuracy)}</td>
-        <td title="信心度：練習次數越多才會越高，跟速度無關 - 這通常才是分數偏低的主因">${formatPercent(detail.confidence)}（${detail.attempts} 次）</td>
-        <td title="時間分數：跟你這個字「自己過去的平均」比較，不是固定標準，練習次數不足時顯示 —">${detail.timingScore == null ? "—" : formatPercent(detail.timingScore)}</td>
+        <td title="連續答對次數，答錯會歸零；連續 2 次才算已熟記">${detail.correctStreak}</td>
         <td>${formatMs(detail.avgCorrectResponseMs)}</td>
-        <td>${formatPercent(detail.score)}</td>
+        <td>${renderWrongAnswerCell(detail)}</td>
         <td><span class="state-badge ${detail.state}">${STATE_LABELS[detail.state]}</span></td>
       </tr>`)
     .join("");
@@ -793,10 +814,10 @@ function renderWordTable() {
     : "";
 
   container.innerHTML = `
-    <p class="hint">記憶分數 = 正確率 × 信心度，再依時間分數微調（最多影響 35%）。信心度需要多練習幾次才會提高，這通常才是分數偏低的主因，不是因為你打字慢；時間分數只跟你這個字自己過去的平均速度比較。滑鼠移到欄位標題可看說明。</p>
+    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。複習測驗會依你的平均反應時間，優先挑選比較慢、比較久沒複習的單字。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
     <div class="word-table-wrap">
       <table class="word-table">
-        <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="正確率">正確率</th><th title="信心度（練習次數）">信心度</th><th title="時間分數">時間分數</th><th>平均反應時間</th><th>記憶分數</th><th>狀態</th></tr></thead>
+        <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="連續答對次數">連續正確</th><th>平均反應時間</th><th>最近錯誤</th><th>狀態</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -895,6 +916,7 @@ async function init() {
   document.getElementById("rate-select").value = settings.rate;
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
   document.getElementById("session-size").value = String(settings.sessionSize);
+  document.getElementById("review-size").value = String(settings.reviewSize);
 
   if (window.speechSynthesis) {
     refreshVoices();

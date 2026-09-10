@@ -1,7 +1,7 @@
 "use strict";
 
 // Pure, DOM-free logic for the Vocabulary Test app: per-word historical
-// data, memorization scoring, question-selection ratios, and progress
+// data, state classification, question-selection ratios, and progress
 // aggregation. Nothing in this file touches localStorage, the DOM, or
 // speech synthesis, so it can be unit-tested directly under Node and
 // reused unchanged by both the regular Vocabulary Test and the Review
@@ -23,63 +23,61 @@
   /* ---------- Centralized, tunable configuration ---------- */
 
   const CONFIG = {
-    // How many recent attempts we keep per word for trend/consistency
-    // analysis. Aggregate counters (attempts/correct/incorrect) are never
-    // capped - only this detailed ring buffer is, to keep storage bounded
-    // across thousands of words.
+    // How many recent attempts we keep per word for wrong-answer history
+    // and response-time trend analysis. Aggregate counters (attempts/
+    // correct/incorrect) are never capped - only this detailed ring
+    // buffer is, to keep storage bounded across thousands of words.
     maxRecentAttempts: 12,
 
-    // Attempts needed before "enough observations" confidence reaches 1.0.
-    // Kept low deliberately: only ~20% of each test round revisits
-    // previously-seen words (see testRatio below), so any single word gets
-    // re-tested infrequently - requiring many repeats before confidence
-    // builds would leave most words stuck looking "unmemorized" for a long
-    // time regardless of how well they're actually known.
-    minObservationsForFullConfidence: 4,
+    // A word is Memorized the moment its current correct streak reaches
+    // this many in a row; any single wrong answer resets the streak to 0
+    // (and the word immediately reads as "incorrect" again). Deliberately
+    // simple and purely correctness-driven - no score, no confidence
+    // ramp, no timing gate on the label itself.
+    memorizedStreak: 2,
 
-    // Need at least this many timed correct answers before timing
-    // contributes to the score at all (cold start relies on correctness).
-    minCorrectTimedForTimingSignal: 2,
-    // Timing's influence ramps up to its max as timed samples approach this.
-    timingWeightFullAt: 4,
-    // Timing can never account for more than this fraction of the blended
-    // pre-confidence score - correctness always dominates.
-    maxTimingInfluence: 0.35,
-
-    // Smoothing factor for the per-word running-average response time.
+    // Smoothing factor for the per-word running-average correct response
+    // time (avgCorrectResponseMs). Used only for review-priority ranking
+    // below, never for the Memorized label.
     emaAlpha: 0.25,
 
-    thresholds: {
-      review: 0.45,
-      memorized: 0.75,
-    },
-
-    // A word cannot reach "memorized" on score alone - it must also clear
-    // this cold-start guard, so one lucky fast/correct answer can't do it.
-    memorizedGuard: {
-      minAttempts: 3,
-      minCorrectStreak: 2,
-      maxRecentErrorRate: 0.2,
-    },
-
-    // Regular Vocabulary Test defaults / ratio target (80% new, 10% missed,
-    // 10% retention-check). Ratios are scaled proportionally to whatever
-    // size is requested, so smaller legacy session sizes use the same mix.
+    // Regular Vocabulary Test ratio: mostly new words, with small slices
+    // revisiting currently-wrong and currently-learning words. Scaled
+    // proportionally to whatever size is requested. Memorized words are
+    // deliberately excluded from the regular test pool - they've already
+    // graduated, so slots go to words that still need work.
     defaultTestSize: 80,
-    testRatio: { new: 0.8, incorrect: 0.1, correct: 0.1 },
+    testRatio: { new: 0.8, incorrect: 0.1, learning: 0.1 },
 
-    // How strongly a weaker/less-memorized word's review-selection weight
-    // grows relative to a stronger one (see reviewPriorityWeight). Higher
-    // = weak words dominate the weighted draw even more.
-    reviewWeaknessFloor: 0.05,
-    // A word tested very recently is down-weighted for a little while so
-    // review slots don't just cycle the same one or two words every round;
-    // its weight recovers back to normal over this many days.
+    // Review Test ratio: weighted toward currently-wrong words, with a
+    // smaller slice for shakier not-yet-memorized "learning" words.
+    // Memorized words are excluded here too - nothing to review.
+    defaultReviewSize: 20,
+    reviewRatio: { incorrect: 0.7, learning: 0.3 },
+
+    // Review-selection priority weighting, by response time: a word's own
+    // average correct-response time is compared against the user's
+    // OVERALL average across all their words (their general typing/
+    // reaction pace) - slower-than-their-own-overall-average words get a
+    // higher chance of filling a review slot, faster ones a lower chance.
+    // This only affects how often a word gets picked for practice, never
+    // whether it counts as Memorized (that's streak-only, see above), so
+    // it never mislabels a word just for naturally taking longer to type.
+    timeWeightMin: 0.3,
+    timeWeightMax: 3,
+    // A word tested moments ago is temporarily de-prioritized (even if
+    // it's slow/weak) so the same word or two don't monopolize every
+    // round; its weight recovers back to normal over this many days.
     reviewRecencyFullRecoveryDays: 3,
 
     // Window (most-recent attempts, across all words) used for "recent
     // performance" / response-time-trend reporting in Progress.
     recentPerformanceWindow: 30,
+
+    // How many distinct past wrong answers to surface per word in
+    // Progress (most recent first), so a word's mistake pattern (e.g.
+    // consistently swapping two letters) is visible before a review.
+    maxRecentWrongAnswersShown: 3,
   };
 
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -118,11 +116,10 @@
   // Weighted random ordering (Efraimidis-Spirakis A-ExpJ scheme): each item
   // gets a random key = u^(1/weight) for u in (0,1); sorting keys
   // descending yields a full permutation where higher-weight items tend to
-  // land earlier, but never deterministically - a weak word doesn't always
-  // win the same slot every round, a stronger one occasionally still gets
-  // picked, and which specific word "wins" shifts as weights change after
-  // each attempt. This is what makes review selection a probabilistic
-  // ranking rather than a rigid "always exactly the top N" cutoff.
+  // land earlier, but never deterministically - a slow/weak word doesn't
+  // always win the same slot every round, a faster one occasionally still
+  // gets picked, and which specific word "wins" shifts as weights change
+  // after each attempt.
   function weightedShuffle(items, weights, random) {
     const rnd = random || Math.random;
     return items
@@ -133,18 +130,6 @@
       })
       .sort((a, b) => b.key - a.key)
       .map((x) => x.item);
-  }
-
-  // How urgently a previously-seen word deserves a review slot: much
-  // higher for weaker/less-memorized words, and temporarily suppressed
-  // right after it was just tested so the same one or two words don't
-  // monopolize every round while their weakness score hasn't caught up
-  // yet. Purely a *weight* for weightedShuffle, not a hard cutoff.
-  function reviewPriorityWeight(scoreInfo, lastSeen, now) {
-    const weakness = clamp(1.05 - scoreInfo.score, CONFIG.reviewWeaknessFloor, 1.05);
-    const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
-    const recencyFactor = clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
-    return weakness * recencyFactor;
   }
 
   /* ---------- Per-word historical data ---------- */
@@ -160,33 +145,37 @@
       correctStreak: 0,
       avgCorrectResponseMs: null,
       recentResponseMs: null,
-      recentAttempts: [], // capped ring buffer: {correct, responseMs, timestamp, attemptNumber}
+      lastWrongAnswer: null, // most recent incorrect answer the user typed
+      recentAttempts: [], // capped ring buffer: {correct, responseMs, timestamp, attemptNumber, answer}
       firstSeen: 0,
       lastSeen: 0,
       lastResult: undefined,
-      inWrongList: false,
-      // Legacy Leitner fields, kept only so old code paths / exports that
-      // might still read them don't break. Not used by the scoring below.
+      // Legacy fields from earlier schema versions, kept only so old
+      // stored data doesn't break migration; not used by any logic below.
       box: 0,
       due: 0,
+      inWrongList: false,
     };
   }
 
   // Upgrades one stored entry (any shape - brand new, legacy v1
-  // `{box,due,correct,wrong,lastSeen}`, or already-current) to the current
-  // shape, filling in any missing fields with safe defaults. Idempotent:
-  // running it again on an already-current entry is a no-op merge, which
-  // is also what makes this forward-compatible with future added fields.
+  // `{box,due,correct,wrong,lastSeen}`, an intermediate score-based v2
+  // shape, or already-current) to the current shape, filling in any
+  // missing fields with safe defaults. Idempotent: running it again on an
+  // already-current entry is a no-op merge, which is also what makes this
+  // forward-compatible with future added fields.
   function migrateWordEntry(raw, word, level, length) {
     const base = createEmptyWordHistory(word, level, length);
     if (!raw) return base;
 
     if (typeof raw.attempts === "number") {
-      // Already current shape (or close enough) - fill gaps only.
+      // Already current-ish shape (v2 or later) - fill gaps only. Older
+      // v2 entries may carry now-unused fields (e.g. inWrongList, a
+      // score/confidence breakdown) - harmless to keep around unused.
       return Object.assign({}, base, raw);
     }
 
-    // Legacy v1 shape from the old Leitner-box dictation/review modes.
+    // Legacy v1 shape from the original Leitner-box dictation/review modes.
     const correct = raw.correct || 0;
     const wrong = raw.wrong || 0;
     const attempts = correct + wrong;
@@ -200,9 +189,6 @@
       lastResult: attempts === 0 ? undefined : (raw.box === 0 && wrong > 0 ? "incorrect" : "correct"),
       lastSeen: raw.lastSeen || 0,
       firstSeen: raw.lastSeen || 0,
-      inWrongList: !!(wrong > 0 && raw.box === 0),
-      box: typeof raw.box === "number" ? raw.box : 0,
-      due: raw.due || 0,
     });
   }
 
@@ -225,21 +211,6 @@
     return migrated;
   }
 
-  function computeCorrectStreak(recentAttempts) {
-    let streak = 0;
-    for (let i = recentAttempts.length - 1; i >= 0; i--) {
-      if (recentAttempts[i].correct) streak += 1;
-      else break;
-    }
-    return streak;
-  }
-
-  function recentErrorRateOf(recentAttempts) {
-    if (!recentAttempts.length) return 0;
-    const wrong = recentAttempts.filter((a) => !a.correct).length;
-    return wrong / recentAttempts.length;
-  }
-
   // Positive = later timings are faster than earlier ones (improving).
   // Needs at least 4 samples to say anything; too few points is noise, not
   // a trend, so it reports neutral (0) instead of overreacting.
@@ -254,11 +225,15 @@
 
   // Records one answer into a word's history, in place, and returns it.
   // Used by BOTH the regular Vocabulary Test and the Review Test, so the
-  // two modes share one memorization system rather than drifting apart.
+  // two modes share one system rather than drifting apart. `opts.answer`
+  // is the raw text the user typed - stored (only for wrong answers, since
+  // a correct one is trivially just the word itself) so mistakes can be
+  // reviewed later instead of just a bare correct/incorrect flag.
   function recordAttempt(history, opts) {
     const correct = !!opts.correct;
     const responseMs = typeof opts.responseMs === "number" ? opts.responseMs : null;
     const timestamp = typeof opts.timestamp === "number" ? opts.timestamp : Date.now();
+    const answer = typeof opts.answer === "string" ? opts.answer : null;
 
     history.attempts = (history.attempts || 0) + 1;
     const attemptNumber = history.attempts;
@@ -269,7 +244,7 @@
     } else {
       history.incorrect = (history.incorrect || 0) + 1;
       history.correctStreak = 0;
-      history.inWrongList = true;
+      history.lastWrongAnswer = answer;
     }
     history.lastResult = correct ? "correct" : "incorrect";
     history.lastSeen = timestamp;
@@ -285,7 +260,13 @@
           : history.avgCorrectResponseMs * (1 - CONFIG.emaAlpha) + responseMs * CONFIG.emaAlpha;
     }
 
-    const entry = { correct: correct, responseMs: responseMs, timestamp: timestamp, attemptNumber: attemptNumber };
+    const entry = {
+      correct: correct,
+      responseMs: responseMs,
+      timestamp: timestamp,
+      attemptNumber: attemptNumber,
+      answer: correct ? undefined : answer,
+    };
     const list = (history.recentAttempts || []).concat(entry);
     history.recentAttempts = list.length > CONFIG.maxRecentAttempts
       ? list.slice(list.length - CONFIG.maxRecentAttempts)
@@ -294,172 +275,162 @@
     return history;
   }
 
-  /* ---------- Memorization scoring ---------- */
+  /* ---------- State classification (simple, streak-based) ---------- */
 
-  // The core measurement asked for: "how well has this particular word
-  // been memorized", not "how quickly was it typed". Response time is only
-  // ever compared against THIS word's own historical baseline
-  // (avgCorrectResponseMs, built purely from this word's own past correct
-  // answers) - never against a fixed ms-per-character rule and never
-  // against other words - so a naturally slower-to-type long word is not
-  // penalized for being long; it is only penalized for being slow relative
-  // to how *it* has typically gone before.
-  function calculateMemorizationScore(history) {
-    const h = history || {};
-    const attempts = h.attempts || 0;
-
-    if (attempts === 0) {
-      return { score: 0, state: "new", accuracy: 0, confidence: 0, timingScore: null, timingWeight: 0, streak: 0, recentErrorRate: 0 };
-    }
-
-    const correct = h.correct || 0;
-    // Laplace smoothing: 1/1 isn't treated as a perfect 100%, 0/1 isn't 0%.
-    const accuracy = (correct + 1) / (attempts + 2);
-    const confidence = clamp(attempts / CONFIG.minObservationsForFullConfidence, 0, 1);
-
-    const recent = h.recentAttempts || [];
-    const streak = computeCorrectStreak(recent);
-    const recentErrorRate = recentErrorRateOf(recent);
-
-    const timedCorrect = recent
-      .filter((a) => a.correct && typeof a.responseMs === "number")
-      .map((a) => a.responseMs);
-
-    let timingScore = null;
-    let timingWeight = 0;
-    if (timedCorrect.length >= CONFIG.minCorrectTimedForTimingSignal) {
-      const mean = average(timedCorrect);
-      const sd = stddev(timedCorrect, mean);
-      const cv = mean > 0 ? sd / mean : 0;
-      const consistency = clamp(1 - cv, 0, 1);
-
-      const recentTime = timedCorrect[timedCorrect.length - 1];
-      const baseline = h.avgCorrectResponseMs || mean;
-      const speedRatio = baseline > 0 ? recentTime / baseline : 1;
-      // At/under its own baseline scores well; slower than its own usual
-      // pace scores lower, tapering off smoothly rather than a hard cutoff.
-      const speedScore = clamp(1.3 - speedRatio * 0.5, 0, 1);
-
-      const improvement = computeImprovementTrend(timedCorrect);
-      const improvementScore = clamp(0.5 + improvement * 0.5, 0, 1);
-
-      timingScore = consistency * 0.4 + speedScore * 0.35 + improvementScore * 0.25;
-      timingWeight = clamp(timedCorrect.length / CONFIG.timingWeightFullAt, 0, 1);
-    }
-
-    const timingInfluence = CONFIG.maxTimingInfluence * timingWeight;
-    const rawBlend = timingScore == null
-      ? accuracy
-      : accuracy * (1 - timingInfluence) + timingScore * timingInfluence;
-
-    // Confidence caps the score so sparse history can never look fully
-    // memorized - this is the cold-start guard at the score level.
-    const score = rawBlend * confidence;
-
-    const guard = CONFIG.memorizedGuard;
-    const passesMemorizedGuard =
-      attempts >= guard.minAttempts &&
-      streak >= guard.minCorrectStreak &&
-      recentErrorRate <= guard.maxRecentErrorRate;
-
-    let state;
-    if (score >= CONFIG.thresholds.memorized && passesMemorizedGuard) state = "memorized";
-    else if (score >= CONFIG.thresholds.review) state = "review";
-    else state = "learning";
-
-    return { score: score, state: state, accuracy: accuracy, confidence: confidence, timingScore: timingScore, timingWeight: timingWeight, streak: streak, recentErrorRate: recentErrorRate };
-  }
-
+  // Four states: "new" (never attempted - not one of the three tracked
+  // states, just bookkeeping for the pool that hasn't been touched yet),
+  // "incorrect" (most recent answer was wrong), "learning" (correct, but
+  // streak hasn't reached memorizedStreak yet), "memorized" (current
+  // streak >= memorizedStreak). Any single wrong answer immediately drops
+  // a word from "memorized" straight back to "incorrect".
   function classifyState(history) {
-    return calculateMemorizationScore(history).state;
+    const h = history || {};
+    if (!h.attempts) return "new";
+    if (h.lastResult === "incorrect") return "incorrect";
+    return (h.correctStreak || 0) >= CONFIG.memorizedStreak ? "memorized" : "learning";
   }
 
-  /* ---------- Regular Vocabulary Test: 80/10/10 question selection ---------- */
+  // Most recent distinct wrong answers for a word, newest first - lets the
+  // UI show e.g. "you've typed 'wierd' and 'werid' before" rather than
+  // just the single latest slip.
+  function recentWrongAnswersOf(history, limit) {
+    const h = history || {};
+    const cap = limit || CONFIG.maxRecentWrongAnswersShown;
+    const chronological = (h.recentAttempts || []).filter((a) => !a.correct && a.answer);
+    const seen = new Set();
+    const out = [];
+    for (let i = chronological.length - 1; i >= 0 && out.length < cap; i--) {
+      const ans = chronological[i].answer;
+      if (seen.has(ans)) continue;
+      seen.add(ans);
+      out.push(ans);
+    }
+    return out;
+  }
+
+  // Simple LCS-based character diff between what the user typed and the
+  // correct spelling, aligned against the CORRECT word: each letter of the
+  // correct word is marked matched (they typed it, in order) or missed
+  // (they didn't) - enough to visually spot "swapped two letters" or "left
+  // one out" mistakes without a heavyweight diff library.
+  function diffChars(typed, correct) {
+    const a = (typed || "").split("");
+    const b = (correct || "").split("");
+    const n = a.length;
+    const m = b.length;
+    const dp = [];
+    for (let i = 0; i <= n; i++) dp.push(new Array(m + 1).fill(0));
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    let i = n;
+    let j = m;
+    const ops = [];
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        ops.push({ char: b[j - 1], match: true });
+        i -= 1;
+        j -= 1;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i -= 1;
+      } else {
+        ops.push({ char: b[j - 1], match: false });
+        j -= 1;
+      }
+    }
+    while (j > 0) {
+      ops.push({ char: b[j - 1], match: false });
+      j -= 1;
+    }
+    ops.reverse();
+    return ops;
+  }
+
+  /* ---------- Review-priority weighting (time-based) ---------- */
 
   function historyFor(historyStore, word) {
     return (historyStore || {})[word.toLowerCase()] || null;
   }
 
-  function categorizeWords(pool, historyStore) {
-    const unseen = [];
-    const prevIncorrect = [];
-    const prevCorrect = [];
-    for (const w of pool) {
-      const h = historyFor(historyStore, w.word);
-      if (!h || !h.attempts) {
-        unseen.push(w);
-      } else if (h.lastResult === "incorrect") {
-        prevIncorrect.push(w);
-      } else {
-        prevCorrect.push(w);
-      }
+  // The user's own overall average correct-response time, across every
+  // word they have timing data for - their general pace. Recomputed from
+  // current data each time (not stored), so it always reflects reality.
+  function computeGlobalAverageResponseMs(historyStore) {
+    const store = historyStore || {};
+    const times = [];
+    for (const key of Object.keys(store)) {
+      const h = store[key];
+      if (h && typeof h.avgCorrectResponseMs === "number") times.push(h.avgCorrectResponseMs);
     }
-    return { unseen: unseen, prevIncorrect: prevIncorrect, prevCorrect: prevCorrect };
+    return times.length ? average(times) : null;
   }
 
-  // Target counts for each category, scaled proportionally to `size` so
-  // smaller/legacy session sizes keep the same 80/10/10 shape.
-  function computeTestTargets(size) {
-    const ratio = CONFIG.testRatio;
-    const newTarget = Math.round(size * ratio.new);
-    const incorrectTarget = Math.round(size * ratio.incorrect);
-    const correctTarget = Math.max(0, size - newTarget - incorrectTarget);
-    return { new: newTarget, incorrect: incorrectTarget, correct: correctTarget };
+  // How urgently a word deserves a review slot: higher for words that run
+  // slower than the user's own overall average pace, with a temporary
+  // dampener right after the word was last tested so the same one or two
+  // words don't monopolize every round. Purely a *weight* for
+  // weightedShuffle, not a hard cutoff - a fast word still has some
+  // chance, a slow one isn't guaranteed.
+  function reviewPriorityWeight(history, globalAvgMs, now) {
+    const h = history || {};
+    let weight = 1; // neutral until there's enough timing data to compare
+    if (globalAvgMs != null && globalAvgMs > 0 && typeof h.avgCorrectResponseMs === "number") {
+      const ratio = h.avgCorrectResponseMs / globalAvgMs;
+      weight = clamp(ratio, CONFIG.timeWeightMin, CONFIG.timeWeightMax);
+    }
+    const lastSeen = h.lastSeen || 0;
+    const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
+    const recencyFactor = clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
+    return weight * recencyFactor;
+  }
+
+  /* ---------- Word categorization ---------- */
+
+  function categorizeWords(pool, historyStore) {
+    const unseen = [];
+    const incorrect = [];
+    const learning = [];
+    const memorized = [];
+    for (const w of pool) {
+      const h = historyFor(historyStore, w.word);
+      const state = classifyState(h);
+      if (state === "new") unseen.push(w);
+      else if (state === "incorrect") incorrect.push(w);
+      else if (state === "memorized") memorized.push(w);
+      else learning.push(w);
+    }
+    return { unseen: unseen, incorrect: incorrect, learning: learning, memorized: memorized };
   }
 
   // Orders candidates for a bucket. "new" words have no history to rank
-  // by, so a plain shuffle is enough. "incorrect"/"correct" (retention
-  // check) words are ordered by a WEIGHTED random draw rather than a
-  // deterministic sort: a weak/stale word is far more likely to land in
-  // the taken-first slots, but it's not guaranteed the exact same word
-  // every round - as its own score improves (or another word's does), the
-  // odds shift and a different word is likely to surface next time.
-  function rankCandidates(words, historyStore, random, category, now) {
+  // by, so a plain shuffle is enough. "incorrect"/"learning" words are
+  // ordered by a WEIGHTED random draw (see reviewPriorityWeight) rather
+  // than a deterministic sort, so slower/staler words are picked far more
+  // often but not guaranteed the exact same word every round.
+  function rankCandidates(words, historyStore, random, category, now, globalAvgMs) {
     if (category === "new") return shuffle(words, random);
-
     const withMeta = words.map((w) => {
       const h = historyFor(historyStore, w.word) || {};
-      const scoreInfo = calculateMemorizationScore(h);
-      return { w: w, weight: reviewPriorityWeight(scoreInfo, h.lastSeen || 0, now) };
+      return { w: w, weight: reviewPriorityWeight(h, globalAvgMs, now) };
     });
     return weightedShuffle(withMeta.map((x) => x.w), withMeta.map((x) => x.weight), random);
   }
 
-  // Builds the regular Vocabulary Test question list: 80% new/unseen, 10%
-  // previously-incorrect, 10% previously-correct (retention check) by
-  // default, redistributing missing slots intelligently when a category
-  // runs short, never duplicating a word, and giving weaker/staler words a
-  // much higher (but not guaranteed) chance of filling the review slots.
-  function selectTestQuestions(opts) {
-    const o = opts || {};
-    const pool = o.pool || [];
-    const historyStore = o.historyStore || {};
-    const random = o.random || Math.random;
-    const now = typeof o.now === "number" ? o.now : Date.now();
-    const totalAvailable = pool.length;
-    let size = typeof o.size === "number" && o.size > 0 ? o.size : CONFIG.defaultTestSize;
-    size = Math.min(size, totalAvailable);
-    if (size <= 0) return [];
-
-    const { unseen, prevIncorrect, prevCorrect } = categorizeWords(pool, historyStore);
-    const targets = computeTestTargets(size);
-
-    const buckets = [
-      { key: "new", ranked: rankCandidates(unseen, historyStore, random, "new", now), target: targets.new },
-      { key: "incorrect", ranked: rankCandidates(prevIncorrect, historyStore, random, "incorrect", now), target: targets.incorrect },
-      { key: "correct", ranked: rankCandidates(prevCorrect, historyStore, random, "correct", now), target: targets.correct },
-    ];
-
+  // Fills bucket targets from ranked candidate lists, then redistributes
+  // any unmet targets (a category running short) into whichever buckets
+  // still have unused candidates, trying `order` first-to-last, and
+  // de-dupes defensively. Shared by both the regular test and Review Test
+  // builders below since they only differ in their bucket set/ratio.
+  function fillBucketsWithFallback(buckets, size, order) {
     const taken = {};
     for (const b of buckets) taken[b.key] = b.ranked.slice(0, b.target);
 
-    let selectedCount = taken.new.length + taken.incorrect.length + taken.correct.length;
+    let selectedCount = 0;
+    for (const key of Object.keys(taken)) selectedCount += taken[key].length;
     let deficit = size - selectedCount;
 
-    // Redistribute unmet targets to whichever categories still have unused
-    // words, preferring "new" first (keeps the test moving the learner
-    // forward), then "incorrect", then "correct".
-    const order = ["new", "incorrect", "correct"];
     let safety = 0;
     while (deficit > 0 && safety < size + 10) {
       safety += 1;
@@ -477,11 +448,9 @@
       if (!progressed) break;
     }
 
-    const combined = taken.new.concat(taken.incorrect, taken.correct);
+    const combined = [];
+    for (const key of order) combined.push.apply(combined, taken[key]);
 
-    // Defensive de-dupe: the three categories are disjoint by construction,
-    // but guard against duplicates anyway so this invariant can never break
-    // silently if the categorization logic ever changes.
     const seen = new Set();
     const deduped = [];
     for (const w of combined) {
@@ -490,45 +459,102 @@
       seen.add(key);
       deduped.push(w);
     }
+    return deduped;
+  }
 
+  /* ---------- Regular Vocabulary Test: 80/10/10 question selection ---------- */
+
+  // Target counts for each category, scaled proportionally to `size` so
+  // smaller/legacy session sizes keep the same 80/10/10 shape.
+  function computeTestTargets(size) {
+    const ratio = CONFIG.testRatio;
+    const newTarget = Math.round(size * ratio.new);
+    const incorrectTarget = Math.round(size * ratio.incorrect);
+    const learningTarget = Math.max(0, size - newTarget - incorrectTarget);
+    return { new: newTarget, incorrect: incorrectTarget, learning: learningTarget };
+  }
+
+  // Builds the regular Vocabulary Test question list: 80% new/unseen, 10%
+  // currently-incorrect, 10% currently-learning by default, redistributing
+  // missing slots intelligently when a category runs short, never
+  // duplicating a word. Memorized words are excluded - they've graduated.
+  function selectTestQuestions(opts) {
+    const o = opts || {};
+    const pool = o.pool || [];
+    const historyStore = o.historyStore || {};
+    const random = o.random || Math.random;
+    const now = typeof o.now === "number" ? o.now : Date.now();
+    const totalAvailable = pool.length;
+    let size = typeof o.size === "number" && o.size > 0 ? o.size : CONFIG.defaultTestSize;
+    size = Math.min(size, totalAvailable);
+    if (size <= 0) return [];
+
+    const { unseen, incorrect, learning } = categorizeWords(pool, historyStore);
+    const globalAvgMs = computeGlobalAverageResponseMs(historyStore);
+    const targets = computeTestTargets(size);
+
+    const buckets = [
+      { key: "new", ranked: rankCandidates(unseen, historyStore, random, "new", now, globalAvgMs), target: targets.new },
+      { key: "incorrect", ranked: rankCandidates(incorrect, historyStore, random, "incorrect", now, globalAvgMs), target: targets.incorrect },
+      { key: "learning", ranked: rankCandidates(learning, historyStore, random, "learning", now, globalAvgMs), target: targets.learning },
+    ];
+
+    // Prefer filling shortfalls from "new" first (keeps the learner moving
+    // forward), then "incorrect", then "learning".
+    const deduped = fillBucketsWithFallback(buckets, size, ["new", "incorrect", "learning"]);
     return shuffle(deduped, random);
   }
 
-  /* ---------- Review Test (wrong-word list) ---------- */
+  /* ---------- Review Test: 70/30 question selection ---------- */
 
-  function computeWrongList(pool, historyStore) {
-    return pool.filter((w) => {
-      const h = historyFor(historyStore, w.word);
-      return !!(h && h.inWrongList);
-    });
+  function computeReviewTargets(size) {
+    const ratio = CONFIG.reviewRatio;
+    const incorrectTarget = Math.round(size * ratio.incorrect);
+    const learningTarget = Math.max(0, size - incorrectTarget);
+    return { incorrect: incorrectTarget, learning: learningTarget };
   }
 
+  // Builds the Review Test question list: 70% currently-incorrect, 30%
+  // currently-learning by default, sized by the caller (size=0 or omitted
+  // falls back to CONFIG.defaultReviewSize, capped to what's available;
+  // an explicit 0 or negative size means "all available"). Falls back
+  // between the two categories when one runs short. There is no separate
+  // "wrong list" to manage - a word's state (and so its membership here)
+  // updates live the instant it's answered, so getting it right in this
+  // very round already moves it out of "incorrect" for next time.
   function buildReviewTestList(opts) {
     const o = opts || {};
     const pool = o.pool || [];
     const historyStore = o.historyStore || {};
     const random = o.random || Math.random;
-    const wrongWords = computeWrongList(pool, historyStore);
-    const shuffled = shuffle(wrongWords, random);
-    return typeof o.size === "number" && o.size > 0 ? shuffled.slice(0, o.size) : shuffled;
-  }
+    const now = typeof o.now === "number" ? o.now : Date.now();
 
-  // After a Review Test, either leave the wrong-word list untouched
-  // ("keepAll") or drop only the words answered correctly in that round
-  // ("removeCorrect"). `records` is [{ word, correct }, ...] for the round.
-  function applyReviewOutcome(historyStore, records, mode) {
-    if (mode !== "removeCorrect") return;
-    for (const rec of records || []) {
-      if (!rec.correct) continue;
-      const h = historyFor(historyStore, rec.word);
-      if (h) h.inWrongList = false;
-    }
+    const { incorrect, learning } = categorizeWords(pool, historyStore);
+    const totalAvailable = incorrect.length + learning.length;
+    if (totalAvailable === 0) return [];
+
+    let size;
+    if (typeof o.size === "number" && o.size > 0) size = o.size;
+    else if (typeof o.size === "number") size = totalAvailable; // 0 or negative = all
+    else size = Math.min(CONFIG.defaultReviewSize, totalAvailable);
+    size = Math.min(size, totalAvailable);
+
+    const globalAvgMs = computeGlobalAverageResponseMs(historyStore);
+    const targets = computeReviewTargets(size);
+
+    const buckets = [
+      { key: "incorrect", ranked: rankCandidates(incorrect, historyStore, random, "incorrect", now, globalAvgMs), target: targets.incorrect },
+      { key: "learning", ranked: rankCandidates(learning, historyStore, random, "learning", now, globalAvgMs), target: targets.learning },
+    ];
+
+    const deduped = fillBucketsWithFallback(buckets, size, ["incorrect", "learning"]);
+    return shuffle(deduped, random);
   }
 
   /* ---------- Progress aggregation ---------- */
 
   function computeProgressSummary(pool, historyStore) {
-    const counts = { new: 0, learning: 0, review: 0, memorized: 0 };
+    const counts = { new: 0, incorrect: 0, learning: 0, memorized: 0 };
     const byLevel = {};
     let totalEncountered = 0;
     let totalAttempts = 0;
@@ -537,13 +563,13 @@
 
     for (const w of pool) {
       const h = historyFor(historyStore, w.word);
-      const info = calculateMemorizationScore(h || {});
-      counts[info.state] += 1;
+      const state = classifyState(h);
+      counts[state] += 1;
 
       const lvl = w.level;
-      if (!byLevel[lvl]) byLevel[lvl] = { total: 0, new: 0, learning: 0, review: 0, memorized: 0 };
+      if (!byLevel[lvl]) byLevel[lvl] = { total: 0, new: 0, incorrect: 0, learning: 0, memorized: 0 };
       byLevel[lvl].total += 1;
-      byLevel[lvl][info.state] += 1;
+      byLevel[lvl][state] += 1;
 
       if (h && h.attempts) {
         totalEncountered += 1;
@@ -571,13 +597,14 @@
       memorizationRate: pool.length ? counts.memorized / pool.length : 0,
       recentAccuracy: recentAccuracy,
       responseTimeTrend: responseTimeTrend,
+      globalAverageResponseMs: computeGlobalAverageResponseMs(historyStore),
       byLevel: byLevel,
     };
   }
 
   function computeWordDetail(w, historyStore) {
     const h = historyFor(historyStore, w.word);
-    const info = calculateMemorizationScore(h || {});
+    const state = classifyState(h);
     return {
       word: w.word,
       level: w.level,
@@ -586,20 +613,12 @@
       attempts: h ? h.attempts : 0,
       correct: h ? h.correct : 0,
       incorrect: h ? h.incorrect : 0,
+      correctStreak: h ? h.correctStreak : 0,
       avgCorrectResponseMs: h ? h.avgCorrectResponseMs : null,
       recentResponseMs: h ? h.recentResponseMs : null,
-      state: info.state,
-      score: info.score,
-      // Score sub-components, exposed so the UI can show WHY a score is
-      // what it is instead of just the opaque final number - accuracy
-      // (correctness so far), confidence (how much history backs that up -
-      // this is what keeps a 1-2-attempt word capped low regardless of
-      // speed), and timingScore (this word's own consistency/speed/
-      // improvement signal, null until there's enough timed data).
-      accuracy: info.accuracy,
-      confidence: info.confidence,
-      timingScore: info.timingScore,
-      inWrongList: h ? !!h.inWrongList : false,
+      lastWrongAnswer: h ? h.lastWrongAnswer : null,
+      recentWrongAnswers: recentWrongAnswersOf(h),
+      state: state,
     };
   }
 
@@ -610,22 +629,21 @@
     stddev: stddev,
     shuffle: shuffle,
     weightedShuffle: weightedShuffle,
-    reviewPriorityWeight: reviewPriorityWeight,
     createEmptyWordHistory: createEmptyWordHistory,
     migrateWordEntry: migrateWordEntry,
     migrateProgressStore: migrateProgressStore,
-    computeCorrectStreak: computeCorrectStreak,
-    recentErrorRateOf: recentErrorRateOf,
     computeImprovementTrend: computeImprovementTrend,
     recordAttempt: recordAttempt,
-    calculateMemorizationScore: calculateMemorizationScore,
     classifyState: classifyState,
+    recentWrongAnswersOf: recentWrongAnswersOf,
+    diffChars: diffChars,
+    computeGlobalAverageResponseMs: computeGlobalAverageResponseMs,
+    reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
     computeTestTargets: computeTestTargets,
+    computeReviewTargets: computeReviewTargets,
     selectTestQuestions: selectTestQuestions,
-    computeWrongList: computeWrongList,
     buildReviewTestList: buildReviewTestList,
-    applyReviewOutcome: applyReviewOutcome,
     computeProgressSummary: computeProgressSummary,
     computeWordDetail: computeWordDetail,
   };
