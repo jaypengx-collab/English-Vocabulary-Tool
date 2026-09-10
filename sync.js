@@ -277,8 +277,31 @@ function expandSyncedProgress(compact, baseMs) {
   return expanded;
 }
 
+// The generation counter conflict resolution is built on (see
+// "Never push behind the server" below): sum of EVERY word's `attempts`,
+// not the count of distinct words attempted. A distinct-word count tops
+// out at the vocabulary size (3,060) the moment every word has been tried
+// once, after which two devices at "3,060 words practiced" would look
+// identical even if one of them has been reviewing for months longer than
+// the other - exactly the failure mode that made a naive fix to this
+// bug worth avoiding. Total attempts has no such ceiling: reviewing an
+// already-practiced word still increments its `attempts`, so this number
+// only ever goes up with real use, on either device, indefinitely. It
+// only ever goes DOWN when the user explicitly resets progress - see
+// vocabSyncPushLocalResetIfConfigured, which pushes past the "behind"
+// guard on purpose for exactly that one deliberate action.
+function computeTotalAttempts(progress) {
+  let total = 0;
+  for (const key of Object.keys(progress || {})) {
+    const h = progress[key];
+    if (h && typeof h.attempts === "number") total += h.attempts;
+  }
+  return total;
+}
+
 function buildSyncSnapshotData() {
   const now = Date.now();
+  const progress = window.VocabState.getProgress();
   return {
     source: "vocab-tool-sync",
     schemaVersion: SYNC_SCHEMA_VERSION,
@@ -286,7 +309,10 @@ function buildSyncSnapshotData() {
     // and, more importantly, the base every progress entry's delta-encoded
     // timestamp is relative to (see compactProgressForSync above).
     exportedAt: now,
-    progress: compactProgressForSync(window.VocabState.getProgress(), now),
+    // See computeTotalAttempts's own comment - this is what a push
+    // compares against the server's own count before ever overwriting it.
+    totalAttempts: computeTotalAttempts(progress),
+    progress: compactProgressForSync(progress, now),
     settings: window.VocabState.getSettings(),
   };
 }
@@ -374,17 +400,58 @@ function setSyncStatus(text, isError) {
   el.classList.toggle("danger-text", !!isError);
 }
 
-async function pushSnapshot() {
+// `opts.force` skips the "never push behind the server" guard below -
+// used ONLY for a deliberate, user-confirmed downgrade (see
+// confirmPushResetAfterClear, the sole caller that passes it). Every other
+// caller (syncTick, the manual 立即同步 button) leaves it unforced, because
+// an AUTOMATIC or routine push must never be the thing that decides "my
+// copy wins" - that decision is exactly what caused real data loss once
+// already (see this file's git history/README).
+async function pushSnapshot(opts) {
+  const force = !!(opts && opts.force);
   const code = getSyncCode();
   const passcode = getSyncPasscode();
   if (!isSyncProxyConfigured() || !code || !passcode) return { ok: false, error: "尚未設定同步。" };
   try {
-    const payload = await encodeSyncPayload(buildSyncSnapshotData());
+    const localSnapshot = buildSyncSnapshotData();
+    if (!force) {
+      // One extra round trip (a GET before the PATCH) to find out whether
+      // the server has strictly more accumulated practice than this
+      // device does - see computeTotalAttempts's own comment on why that
+      // count, not a timestamp, is the actual source of truth here. That
+      // round trip is the real cost of not silently overwriting someone
+      // else's progress, which is exactly what a plain "just PATCH it"
+      // push already did once.
+      const doc = await fetchSyncDoc(code, passcode);
+      if (!doc.ok) throw new Error(doc.error);
+      if (doc.exists && doc.payload) {
+        const remote = await decodeSyncPayload(doc.payload);
+        const remoteTotal = typeof remote.totalAttempts === "number" ? remote.totalAttempts : 0;
+        if (remoteTotal > localSnapshot.totalAttempts) {
+          // The server is ahead of us - applying it locally is the same
+          // outcome an ordinary pull would produce, just reached from the
+          // push path instead of leaving this device's fewer-attempts
+          // copy to silently clobber the server's.
+          const remoteProgress = expandSyncedProgress(remote.progress, remote.exportedAt);
+          window.VocabState.applySyncedSnapshot(remoteProgress, remote.settings);
+          writeLocal(LAST_UPDATE_KEY, doc.updateTime);
+          dirty = false;
+          return {
+            ok: true,
+            pushed: false,
+            pulledInstead: true,
+            remoteTotalAttempts: remoteTotal,
+            localTotalAttempts: localSnapshot.totalAttempts,
+          };
+        }
+      }
+    }
+    const payload = await encodeSyncPayload(localSnapshot);
     const result = await writeSyncDoc(code, payload, passcode);
     if (!result.ok) throw new Error(result.error);
     writeLocal(LAST_UPDATE_KEY, result.updateTime);
     dirty = false;
-    return { ok: true };
+    return { ok: true, pushed: true };
   } catch (error) {
     return { ok: false, error: `同步上傳失敗：${error.message || error}` };
   }
@@ -414,32 +481,44 @@ async function pullSnapshot(opts) {
   }
 }
 
-// One check does at most one round trip: push when this device changed
-// since its last push, otherwise pull to pick up any change from another
-// of this learner's devices. Never both in the same tick, same reasoning
-// as Orbit's own syncTick - a push always means "we are already current."
+// One check does at most one round trip in the common case: push when
+// this device changed since its last push, otherwise pull to pick up any
+// change from another of this learner's devices. Never both in the same
+// tick, same reasoning as Orbit's own syncTick - a push always means "we
+// are already current" (or, now, "pushSnapshot itself decided we weren't
+// and pulled instead - see below).
 //
-// The FIRST tick of a session is never allowed to push, `dirty` or not -
-// see hasSyncedSinceLoad's own comment for why that guard exists at all.
-// It always pulls first, establishing what the server actually has before
-// this device's own local copy is trusted with anything.
+// `dirty` on its own is not trustworthy for deciding push-vs-pull: it's a
+// plain in-memory flag, reset to false on every page reload regardless of
+// whether this device actually has unpushed local changes sitting in
+// localStorage from before that reload (e.g. the tab closed or went
+// offline before a pending push could finish). An earlier version of this
+// function special-cased "haven't synced yet this session" to always pull
+// first instead, which fixed the original push-before-ever-pulling bug
+// but introduced a DIFFERENT one: a device reopening with genuine unpushed
+// progress from before the reload would have that blind pull silently
+// discard it. Treating "not yet synced this session" the same as `dirty` -
+// both route through the guarded pushSnapshot() below - fixes both: its
+// own totalAttempts comparison (see that function and
+// computeTotalAttempts's comment) decides, from the actual data, whether
+// this device's copy is safe to publish or whether the server's is ahead
+// and should be pulled instead. No more session-order guessing either way.
 async function syncTick() {
   if (!isSyncConfigured() || !navigator.onLine || document.hidden || syncInFlight || !vocabReady) return false;
   syncInFlight = true;
   try {
-    if (!hasSyncedSinceLoad) {
-      const result = await pullSnapshot();
-      hasSyncedSinceLoad = true;
-      if (result.ok && result.applied) {
-        setSyncStatus(`已從其他裝置更新學習紀錄（${new Date().toLocaleTimeString("zh-TW")}）`);
-      } else if (!result.ok) {
-        setSyncStatus(result.error, true);
-      }
-      return !!(result.ok && result.applied);
-    }
-    if (dirty) {
+    if (dirty || !hasSyncedSinceLoad) {
       const result = await pushSnapshot();
-      setSyncStatus(result.ok ? `已同步（${new Date().toLocaleTimeString("zh-TW")}）` : result.error, !result.ok);
+      hasSyncedSinceLoad = true;
+      if (!result.ok) {
+        setSyncStatus(result.error, true);
+      } else if (result.pulledInstead) {
+        setSyncStatus(
+          `其他裝置的練習次數比較多（${result.remoteTotalAttempts} 次，這台裝置 ${result.localTotalAttempts} 次），已改為抓取最新進度，避免覆蓋掉它。`
+        );
+      } else {
+        setSyncStatus(`已同步（${new Date().toLocaleTimeString("zh-TW")}）`);
+      }
       return result.ok;
     }
     const result = await pullSnapshot();
@@ -679,24 +758,28 @@ function vocabSyncNow() {
   }
   withButtonDisabled("sync-now-btn", async () => {
     setSyncStatus("正在同步…");
-    // Same safety net as syncTick(): never push before this device has
-    // reconciled with the server at least once this session, no matter
-    // what dirty says - see hasSyncedSinceLoad's own comment.
-    if (!hasSyncedSinceLoad) {
-      const result = await pullSnapshot({ force: true });
+    // Same reasoning as syncTick(): "haven't reconciled this session yet"
+    // is treated the same as dirty, both routed through the guarded
+    // pushSnapshot() - see that function and computeTotalAttempts's own
+    // comment for why a totalAttempts comparison decides this, not a
+    // session-order guess that could discard genuine unpushed progress.
+    if (dirty || !hasSyncedSinceLoad) {
+      const result = await pushSnapshot();
       hasSyncedSinceLoad = true;
-      if (!result.ok) setSyncStatus(result.error, true);
-      else setSyncStatus(result.applied ? "已更新為最新的學習紀錄。" : "已是最新。");
+      if (!result.ok) {
+        setSyncStatus(result.error, true);
+      } else if (result.pulledInstead) {
+        setSyncStatus(
+          `其他裝置的練習次數比較多（${result.remoteTotalAttempts} 次，這台裝置 ${result.localTotalAttempts} 次），已改為抓取最新進度，避免覆蓋掉它。`
+        );
+      } else {
+        setSyncStatus("已同步。");
+      }
       return;
     }
-    if (dirty) {
-      const result = await pushSnapshot();
-      setSyncStatus(result.ok ? "已同步。" : result.error, !result.ok);
-    } else {
-      const result = await pullSnapshot({ force: true });
-      if (!result.ok) setSyncStatus(result.error, true);
-      else setSyncStatus(result.applied ? "已更新為最新的學習紀錄。" : "已是最新。");
-    }
+    const result = await pullSnapshot({ force: true });
+    if (!result.ok) setSyncStatus(result.error, true);
+    else setSyncStatus(result.applied ? "已更新為最新的學習紀錄。" : "已是最新。");
   });
 }
 
@@ -802,9 +885,41 @@ function initSyncUI() {
   renderSyncPanel();
 }
 
+// Called by app.js's reset-progress-btn handler right after it clears
+// progressStore locally, ONLY when sync is configured. A reset drops this
+// device's totalAttempts to 0 - left to the ordinary guarded push path
+// (pushSnapshot without force), the very next automatic tick would see
+// the server's real count as "ahead" and pull the pre-reset data right
+// back down, quietly undoing the reset. That's the correct behavior for
+// an ACCIDENTAL dip (the bug this whole guard exists to prevent), but a
+// deliberate "清除全部學習紀錄" click needs an explicit way to actually
+// win - hence force:true here, gated behind its own confirmation, since
+// pushing a reset can wipe every other device synced to this same code.
+function confirmPushResetAfterClear() {
+  if (!isSyncConfigured()) return;
+  if (!navigator.onLine) {
+    setSyncStatus("目前沒有網路連線，無法同步這次清除（同步的資料不受影響）。", true);
+    return;
+  }
+  const confirmed = confirm(
+    "要把同步的學習紀錄也一起清除嗎？\n\n" +
+      "這會清掉其他已加入同步的裝置看到的學習紀錄（下次它們同步時），此動作無法復原。\n\n" +
+      "選「取消」的話，只有這台裝置被清除——同步的資料不受影響，下次自動同步時，這台裝置的紀錄還會被補回來。"
+  );
+  if (!confirmed) {
+    setSyncStatus("已清除本機學習紀錄；同步的資料不受影響。");
+    return;
+  }
+  setSyncStatus("正在清除同步的學習紀錄…");
+  pushSnapshot({ force: true }).then((result) => {
+    setSyncStatus(result.ok ? "已清除本機與同步的學習紀錄。" : result.error, !result.ok);
+  });
+}
+
 initSyncUI();
 
 window.VocabSync = {
   notifyLocalChange: notifyLocalChange,
   onVocabReady: onVocabReady,
+  confirmPushResetAfterClear: confirmPushResetAfterClear,
 };

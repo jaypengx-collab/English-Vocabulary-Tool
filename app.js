@@ -1264,6 +1264,11 @@ document.getElementById("reset-progress-btn").addEventListener("click", () => {
     progressStore = {};
     saveProgress();
     renderProgress();
+    // Asks separately (only if sync is actually configured) whether this
+    // clear should also propagate to the synced copy - see sync.js's
+    // confirmPushResetAfterClear for why a reset needs its own explicit
+    // confirmation rather than just riding the ordinary guarded push.
+    if (window.VocabSync) window.VocabSync.confirmPushResetAfterClear();
   }
 });
 
