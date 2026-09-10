@@ -294,9 +294,21 @@ document.getElementById("test-voice-btn").addEventListener("click", () => {
   speak(sample.word);
 });
 
-document.getElementById("session-size").addEventListener("change", (e) => {
-  settings.sessionSize = Number(e.target.value);
+function setSessionSize(size) {
+  const clamped = Math.max(0, Math.floor(size) || 0);
+  settings.sessionSize = clamped;
+  document.getElementById("session-size").value = String(clamped);
   saveSettings();
+}
+
+document.getElementById("session-size").addEventListener("change", (e) => {
+  setSessionSize(Number(e.target.value));
+});
+
+document.getElementById("session-size-presets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-size]");
+  if (!btn) return;
+  setSessionSize(Number(btn.dataset.size));
 });
 
 /* ---------- Shared quiz mechanics (used by both Vocabulary Test and Review Test) ---------- */
@@ -347,9 +359,20 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
 
 /* ---------- Vocabulary Test mode ---------- */
 
-const vocabTest = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0 };
+const vocabTest = { list: [], index: 0, correctCount: 0, missed: [], answered: false, wordShownAt: 0, inProgress: false };
 
+// The Vocabulary Test view has no top-level tab of its own - it's only
+// ever entered from this button, and navigating away mid-round (e.g. to
+// check Progress) and back must resume exactly where it left off rather
+// than silently discarding the round. The underlying view stays in the
+// DOM (just hidden via CSS) while inactive, so simply re-showing it is
+// enough to restore its on-screen state; only a *finished* round (or no
+// round at all yet) should build a fresh one.
 document.getElementById("start-test-btn").addEventListener("click", () => {
+  if (vocabTest.inProgress) {
+    showView("test");
+    return;
+  }
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
@@ -358,6 +381,7 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   vocabTest.index = 0;
   vocabTest.correctCount = 0;
   vocabTest.missed = [];
+  vocabTest.inProgress = true;
   document.getElementById("test-summary").classList.add("hidden");
   document.getElementById("test-form").classList.remove("hidden");
   showView("test");
@@ -430,6 +454,7 @@ function advanceTest() {
 }
 
 function finishTest() {
+  vocabTest.inProgress = false;
   document.getElementById("test-progress-fill").style.width = "100%";
   document.getElementById("test-form").classList.add("hidden");
   document.getElementById("test-feedback").classList.add("hidden");
@@ -473,9 +498,15 @@ document.getElementById("test-home-btn").addEventListener("click", () => showVie
 
 /* ---------- Review Test mode (auto-quizzes the wrong-word list) ---------- */
 
-const reviewTest = { list: [], index: 0, records: [], answered: false, wordShownAt: 0 };
+const reviewTest = { list: [], index: 0, records: [], answered: false, wordShownAt: 0, inProgress: false };
 
+// Same "no dedicated tab, resume on return" rule as the Vocabulary Test -
+// see the comment on start-test-btn above.
 document.getElementById("start-review-btn").addEventListener("click", () => {
+  if (reviewTest.inProgress) {
+    showView("review");
+    return;
+  }
   const levels = selectedLevels();
   if (!levels.length) return;
   const pool = wordsForLevels(levels);
@@ -494,6 +525,7 @@ document.getElementById("start-review-btn").addEventListener("click", () => {
     body.classList.add("hidden");
     return;
   }
+  reviewTest.inProgress = true;
   empty.classList.add("hidden");
   body.classList.remove("hidden");
   document.getElementById("rev-form").classList.remove("hidden");
@@ -567,6 +599,7 @@ function advanceReview() {
 }
 
 function finishReview() {
+  reviewTest.inProgress = false;
   document.getElementById("rev-progress-fill").style.width = "100%";
   document.getElementById("rev-body").classList.add("hidden");
 

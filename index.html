@@ -12,8 +12,6 @@
   <h1>🔊 高中英文參考詞彙表 <span class="muted">Level 4–6</span></h1>
   <nav class="tabs" id="tabs">
     <button class="tab-btn active" data-view="home">首頁</button>
-    <button class="tab-btn" data-view="test">單字測驗</button>
-    <button class="tab-btn" data-view="review">複習測驗</button>
     <button class="tab-btn" data-view="progress">學習進度</button>
   </nav>
 </header>
@@ -45,15 +43,16 @@
       <h2>開始練習</h2>
       <div class="row">
         <label for="session-size">單字測驗題數</label>
-        <select id="session-size">
-          <option value="10">10</option>
-          <option value="20">20</option>
-          <option value="50">50</option>
-          <option value="80" selected>80（建議）</option>
-          <option value="0">全部（依範圍）</option>
-        </select>
+        <input type="number" id="session-size" min="0" max="3060" step="1" value="80" />
       </div>
-      <p class="hint">單字測驗預設每回合 80 題，組成為 80% 新字、10% 曾經答錯、10% 曾經答對（用來檢驗記憶是否穩固）；若該範圍字數不足，系統會自動用其他類別補足。</p>
+      <div class="row" id="session-size-presets">
+        <button type="button" class="btn secondary small" data-size="10">10</button>
+        <button type="button" class="btn secondary small" data-size="20">20</button>
+        <button type="button" class="btn secondary small" data-size="50">50</button>
+        <button type="button" class="btn secondary small" data-size="80">80（建議）</button>
+        <button type="button" class="btn secondary small" data-size="0">全部（依範圍）</button>
+      </div>
+      <p class="hint">可自行輸入想要的題數，或點選上方快速選項；輸入 0 表示測驗該範圍內的全部單字。單字測驗組成為 80% 新字、10% 曾經答錯、10% 曾經答對（用來檢驗記憶是否穩固），並依題數等比例調整；若該範圍字數不足，系統會自動用其他類別補足。</p>
       <div class="row actions">
         <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
         <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
