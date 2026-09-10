@@ -194,6 +194,16 @@
       </div>
       <div id="progress-word-table"></div>
 
+      <h2>備份與還原</h2>
+      <p class="hint">學習紀錄目前只存在這台裝置的瀏覽器裡，清除瀏覽器資料或換裝置都會遺失。
+        在正式帳號同步功能做好之前，建議定期匯出備份檔保存起來；需要時再匯入還原。</p>
+      <div class="row actions">
+        <button class="btn secondary" id="export-progress-btn">📤 匯出學習紀錄</button>
+        <button class="btn secondary" id="import-progress-btn">📥 匯入學習紀錄</button>
+        <input type="file" id="import-progress-file" accept="application/json,.json" class="hidden" />
+      </div>
+      <p class="hint hidden" id="import-status"></p>
+
       <div class="row actions">
         <button class="btn danger" id="reset-progress-btn">清除全部學習紀錄</button>
       </div>

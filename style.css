@@ -127,6 +127,8 @@ body {
   line-height: 1.5;
 }
 
+.hint.danger-text { color: var(--danger); }
+
 .row {
   display: flex;
   align-items: center;

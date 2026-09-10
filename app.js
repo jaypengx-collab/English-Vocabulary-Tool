@@ -80,23 +80,27 @@ function recordResult(item, correct, responseMs, answer) {
 
 let VOCAB = [];
 let VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
+let VOCAB_INDEX = {}; // word.toLowerCase() -> {word, level}, also reused by import below
+
+function buildVocabIndex() {
+  const index = {};
+  for (const w of VOCAB) index[w.word.toLowerCase()] = { word: w.word, level: w.level };
+  return index;
+}
 
 async function loadVocab() {
   const res = await fetch("data/vocab.json?v=__BUILD_VERSION__");
   VOCAB = await res.json();
   VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
-  const vocabIndex = {};
-  for (const w of VOCAB) {
-    VOCAB_BY_LEVEL[w.level].push(w);
-    vocabIndex[w.word.toLowerCase()] = { word: w.word, level: w.level };
-  }
+  for (const w of VOCAB) VOCAB_BY_LEVEL[w.level].push(w);
+  VOCAB_INDEX = buildVocabIndex();
   document.getElementById("footer-total").textContent = VOCAB.length;
 
   // Backward-compatible migration: upgrades legacy Leitner-box entries (and
   // fills in any newly-added fields on already-current entries) without
   // resetting existing progress. Safe to run on every load - it's a no-op
   // merge once everything is already in the current shape.
-  progressStore = Logic.migrateProgressStore(progressStore, vocabIndex);
+  progressStore = Logic.migrateProgressStore(progressStore, VOCAB_INDEX);
   saveProgress();
 }
 
@@ -824,6 +828,93 @@ function renderWordTable() {
     ${truncatedNote}
   `;
 }
+
+/* ---------- Backup / restore (export-to-file, temporary stand-in until
+   there's a real account-synced backend) ---------- */
+
+// Schema is intentionally simple and self-describing (not just a raw dump
+// of localStorage) so a future migration script can read old export files
+// without having to reverse-engineer today's internal shape.
+const EXPORT_SCHEMA_VERSION = 1;
+
+function showImportStatus(text, isError) {
+  const el = document.getElementById("import-status");
+  el.textContent = text;
+  el.classList.remove("hidden");
+  el.classList.toggle("danger-text", !!isError);
+}
+
+document.getElementById("export-progress-btn").addEventListener("click", () => {
+  const payload = {
+    source: "vocab-tool-local-export",
+    schemaVersion: EXPORT_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    progress: progressStore,
+    settings: settings,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const dateStamp = new Date().toISOString().slice(0, 10);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `vocab-progress-${dateStamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showImportStatus(`已匯出備份檔（共 ${Object.keys(progressStore).length} 個單字的紀錄）。`, false);
+});
+
+document.getElementById("import-progress-btn").addEventListener("click", () => {
+  document.getElementById("import-progress-file").click();
+});
+
+document.getElementById("import-progress-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = ""; // allow re-selecting the same file later
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (err) {
+      showImportStatus("匯入失敗：這不是有效的 JSON 備份檔。", true);
+      return;
+    }
+    const importedProgress = parsed && typeof parsed === "object" ? parsed.progress : null;
+    if (!importedProgress || typeof importedProgress !== "object") {
+      showImportStatus("匯入失敗：檔案格式不正確（找不到學習紀錄內容）。", true);
+      return;
+    }
+
+    const wordCount = Object.keys(importedProgress).length;
+    const confirmed = confirm(
+      `即將匯入備份檔（${wordCount} 個單字的紀錄${parsed.exportedAt ? `，匯出於 ${parsed.exportedAt.slice(0, 10)}` : ""}）。\n\n` +
+      "這會「取代」目前這台裝置瀏覽器裡的全部學習紀錄，無法復原，確定要繼續嗎？"
+    );
+    if (!confirmed) return;
+
+    // Re-migrate on the way in too, in case the backup predates a later
+    // schema change - same safety net as loading from localStorage.
+    progressStore = Logic.migrateProgressStore(importedProgress, VOCAB_INDEX);
+    if (parsed.settings && typeof parsed.settings === "object") {
+      settings = Object.assign({}, settings, parsed.settings);
+      saveSettings();
+      document.getElementById("rate-select").value = settings.rate;
+      document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
+      document.getElementById("session-size").value = String(settings.sessionSize);
+      document.getElementById("review-size").value = String(settings.reviewSize);
+    }
+    saveProgress();
+    renderProgress();
+    showImportStatus(`已匯入 ${wordCount} 個單字的學習紀錄。`, false);
+  };
+  reader.onerror = () => showImportStatus("匯入失敗：無法讀取檔案。", true);
+  reader.readAsText(file);
+});
 
 document.getElementById("reset-progress-btn").addEventListener("click", () => {
   if (confirm("確定要清除全部學習紀錄嗎？此動作無法復原。")) {
