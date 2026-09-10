@@ -51,50 +51,46 @@
         <span class="hint" id="test-voice-word"></span>
       </div>
 
-      <h2>選擇模式</h2>
-      <div class="level-picker" id="mode-picker">
-        <label class="level-chip"><input type="radio" name="mode" value="test" checked><span>📝 單字測驗</span></label>
-        <label class="level-chip"><input type="radio" name="mode" value="review"><span>🔁 複習測驗</span></label>
+      <h2>練習時間</h2>
+      <div class="row">
+        <label for="test-minutes">時間長度</label>
+        <input type="range" id="test-minutes" min="2" max="30" step="1" value="10" />
+        <span id="test-minutes-value">10 分鐘</span>
+      </div>
+      <div class="row" id="test-minutes-presets">
+        <button type="button" class="btn secondary small" data-minutes="5">5</button>
+        <button type="button" class="btn secondary small" data-minutes="10">10（建議）</button>
+        <button type="button" class="btn secondary small" data-minutes="15">15</button>
+        <button type="button" class="btn secondary small" data-minutes="20">20</button>
+        <button type="button" class="btn secondary small" data-minutes="30">30</button>
+      </div>
+      <p class="hint">拖曳滑桿或點選上方快速選項，決定要練習多久；時間到會自動結束並顯示成績，實際題數依你的作答速度而定，不用自己抓題數。</p>
+
+      <h2>單字類型比例</h2>
+      <p class="hint">拖曳調整這回合「新字／答錯待複習／學習中」單字各佔多少比例，三者總和固定為 100%，拖一個滑桿時另外兩個會自動增減；若某類單字數量不足，系統會自動用其他非 0% 的類別補足，但 0% 的類別永遠不會出現。已熟記（連續答對 2 次）的單字一律不會出現，把機會留給還沒學會的字。</p>
+      <div class="row">
+        <label for="ratio-new">🆕 新字</label>
+        <input type="range" class="ratio-slider" id="ratio-new" min="0" max="100" step="1" value="80" />
+        <span class="ratio-value" id="ratio-new-value">80%</span>
+      </div>
+      <div class="row">
+        <label for="ratio-incorrect">❌ 答錯待複習</label>
+        <input type="range" class="ratio-slider" id="ratio-incorrect" min="0" max="100" step="1" value="10" />
+        <span class="ratio-value" id="ratio-incorrect-value">10%</span>
+      </div>
+      <div class="row">
+        <label for="ratio-learning">📖 學習中</label>
+        <input type="range" class="ratio-slider" id="ratio-learning" min="0" max="100" step="1" value="10" />
+        <span class="ratio-value" id="ratio-learning-value">10%</span>
+      </div>
+      <div class="row" id="ratio-presets">
+        <button type="button" class="btn secondary small" data-ratio="80,10,10">以新字為主（建議）</button>
+        <button type="button" class="btn secondary small" data-ratio="0,70,30">只複習</button>
+        <button type="button" class="btn secondary small" data-ratio="34,33,33">平均分配</button>
       </div>
 
-      <div id="test-mode-settings">
-        <h2>開始練習</h2>
-        <div class="row">
-          <label for="test-minutes">測驗時間</label>
-          <input type="range" id="test-minutes" min="2" max="30" step="1" value="10" />
-          <span id="test-minutes-value">10 分鐘</span>
-        </div>
-        <div class="row" id="test-minutes-presets">
-          <button type="button" class="btn secondary small" data-minutes="5">5</button>
-          <button type="button" class="btn secondary small" data-minutes="10">10（建議）</button>
-          <button type="button" class="btn secondary small" data-minutes="15">15</button>
-          <button type="button" class="btn secondary small" data-minutes="20">20</button>
-          <button type="button" class="btn secondary small" data-minutes="30">30</button>
-        </div>
-        <p class="hint">拖曳滑桿或點選上方快速選項，決定要練習多久；時間到會自動結束並顯示成績，實際題數依你的作答速度而定，不用自己抓題數。單字測驗組成為 80% 新字、10% 答錯待複習、10% 學習中的單字（用來檢驗記憶是否穩固）；若該範圍字數不足，系統會自動用其他類別補足。已熟記（連續答對 2 次）的單字不會再出現，把機會留給還沒學會的字。</p>
-        <div class="row actions">
-          <button class="btn primary" id="start-test-btn">📝 開始單字測驗</button>
-        </div>
-      </div>
-
-      <div id="review-mode-settings" class="hidden">
-        <h2>開始練習</h2>
-        <div class="row">
-          <label for="review-minutes">複習時間</label>
-          <input type="range" id="review-minutes" min="2" max="30" step="1" value="5" />
-          <span id="review-minutes-value">5 分鐘</span>
-        </div>
-        <div class="row" id="review-minutes-presets">
-          <button type="button" class="btn secondary small" data-minutes="5">5（建議）</button>
-          <button type="button" class="btn secondary small" data-minutes="10">10</button>
-          <button type="button" class="btn secondary small" data-minutes="15">15</button>
-          <button type="button" class="btn secondary small" data-minutes="20">20</button>
-          <button type="button" class="btn secondary small" data-minutes="30">30</button>
-        </div>
-        <p class="hint">複習測驗組成為 70% 答錯待複習、30% 學習中的單字，優先挑選比你平均反應時間慢、比較久沒複習的單字；已熟記的單字不會出現。時間到會自動結束並顯示成績。</p>
-        <div class="row actions">
-          <button class="btn primary" id="start-review-btn">🔁 開始複習測驗</button>
-        </div>
+      <div class="row actions">
+        <button class="btn primary" id="start-test-btn">📝 開始測驗</button>
       </div>
     </div>
   </section>
@@ -130,54 +126,6 @@
         <div class="row actions">
           <button class="btn primary" id="test-again-btn">再來一回合</button>
           <button class="btn secondary" id="test-home-btn">回首頁</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- REVIEW TEST (auto-quizzes currently-incorrect/learning words, 70/30) -->
-  <section id="view-review" class="view">
-    <div class="card center-card">
-
-      <div id="rev-empty" class="summary hidden">
-        <h2>目前沒有需要複習的單字</h2>
-        <p class="hint">去做幾回合單字測驗，答錯或還在學習中的單字會自動成為複習測驗的候選。</p>
-        <div class="row actions">
-          <button class="btn secondary" id="rev-empty-home-btn">回首頁</button>
-        </div>
-      </div>
-
-      <div id="rev-body">
-        <div class="progress-row">
-          <div class="progress-bar"><div class="progress-fill" id="rev-progress-fill"></div></div>
-          <span id="rev-progress-text">00:00</span>
-        </div>
-        <div class="level-badge" id="rev-level-badge">Level 4</div>
-
-        <button class="play-btn" id="rev-play-btn" title="播放發音 (Enter 重播)">🔊</button>
-        <p class="hint">複習測驗：答錯或還在學習中的單字，再挑戰一次！</p>
-
-        <form id="rev-form" autocomplete="off">
-          <input type="text" id="rev-input" placeholder="輸入單字..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-          <div class="row actions">
-            <button type="button" class="btn secondary" id="rev-replay-btn">🔁 重播</button>
-            <button type="submit" class="btn primary" id="rev-submit-btn">送出</button>
-          </div>
-        </form>
-
-        <div id="rev-feedback" class="feedback hidden"></div>
-        <button class="btn primary hidden" id="rev-next-btn">下一題 →</button>
-      </div>
-
-      <div id="rev-summary" class="summary hidden">
-        <h2>複習測驗結束！</h2>
-        <p id="rev-summary-score"></p>
-        <p class="hint" id="rev-summary-trend"></p>
-        <div id="rev-summary-words"></div>
-
-        <div class="row actions">
-          <button class="btn primary" id="rev-again-btn">再來一回合</button>
-          <button class="btn secondary" id="rev-home-btn">回首頁</button>
         </div>
       </div>
     </div>
@@ -326,6 +274,21 @@
 </footer>
 
 <div id="update-toast" class="update-toast hidden"></div>
+
+<!-- In-app confirm dialog - replaces the browser's native confirm(), which
+     on iOS/mobile Safari shows as an ugly system-chrome popup that doesn't
+     match the app and (on Home Screen-installed PWAs especially) can look
+     like it belongs to the OS rather than this page. See app.js's
+     showConfirmDialog(). -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal-box" role="alertdialog" aria-modal="true" aria-labelledby="modal-message">
+    <div id="modal-message"></div>
+    <div class="row actions modal-actions">
+      <button type="button" class="btn secondary" id="modal-cancel-btn">取消</button>
+      <button type="button" class="btn primary" id="modal-ok-btn">確定</button>
+    </div>
+  </div>
+</div>
 
 <script src="logic.js?v=__BUILD_VERSION__"></script>
 <script src="app.js?v=__BUILD_VERSION__"></script>

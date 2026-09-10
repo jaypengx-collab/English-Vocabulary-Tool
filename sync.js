@@ -505,6 +505,13 @@ async function pullSnapshot(opts) {
 // computeTotalAttempts's comment) decides, from the actual data, whether
 // this device's copy is safe to publish or whether the server's is ahead
 // and should be pulled instead. No more session-order guessing either way.
+// Returns { ok, changed } - `changed` is true only when this tick actually
+// REPLACED local progressStore with something from the server (a pull, or
+// a push that turned out to be behind and pulled instead), never for an
+// ordinary successful push of this device's own data (nothing about local
+// data changed in that case). reconcileBeforeStarting's caller (app.js's
+// start-test-btn) uses `changed` to decide whether it's worth refreshing
+// an already-started round's question list.
 async function runSyncTick() {
   if (dirty || !hasSyncedSinceLoad) {
     const result = await pushSnapshot();
@@ -518,7 +525,7 @@ async function runSyncTick() {
     } else {
       setSyncStatus(`已同步（${new Date().toLocaleTimeString("zh-TW")}）`);
     }
-    return result.ok;
+    return { ok: result.ok, changed: !!result.pulledInstead };
   }
   const result = await pullSnapshot();
   if (result.ok && result.applied) {
@@ -526,7 +533,7 @@ async function runSyncTick() {
   } else if (!result.ok) {
     setSyncStatus(result.error, true);
   }
-  return !!(result.ok && result.applied);
+  return { ok: result.ok, changed: !!(result.ok && result.applied) };
 }
 
 // A caller that arrives while a tick is already running (e.g.
@@ -536,7 +543,7 @@ async function runSyncTick() {
 // re-entrancy guard would - see syncInFlightPromise's own comment above.
 async function syncTick() {
   if (syncInFlight) return syncInFlightPromise;
-  if (!isSyncConfigured() || !navigator.onLine || document.hidden || !vocabReady) return false;
+  if (!isSyncConfigured() || !navigator.onLine || document.hidden || !vocabReady) return { ok: false, changed: false };
   syncInFlight = true;
   syncInFlightPromise = (async () => {
     try {
@@ -549,23 +556,26 @@ async function syncTick() {
   return syncInFlightPromise;
 }
 
-// Used by app.js's start-test-btn/start-review-btn handlers to grab the
-// latest synced progress right before building that round's question list -
-// on top of the on-load/on-focus sync above, this covers a device that's
-// been sitting idle (open in a background tab, or just not touched in a
-// while) since its last reconcile, where another device may have pushed
-// something newer in the meantime. Races syncTick() against a short
-// timeout so a slow or hung network can never hold up starting a round -
-// if it doesn't finish in time, the round just starts from whatever's
-// already local, same as if this call weren't made at all.
+// Used by app.js's start-test-btn handler to grab the latest synced
+// progress right after starting a round (fire-and-forget - see that
+// handler's own comment on why it never awaits this before showing the
+// first word) - on top of the on-load/on-focus sync above, this covers a
+// device that's been sitting idle (open in a background tab, or just not
+// touched in a while) since its last reconcile, where another device may
+// have pushed something newer in the meantime. Races syncTick() against a
+// short timeout so a slow or hung network never leaves this pending
+// forever - if it doesn't finish in time, the round just keeps using
+// whatever's already local, same as if this call weren't made at all.
 const RECONCILE_BEFORE_START_TIMEOUT_MS = 4000;
 async function reconcileBeforeStarting() {
-  if (!isSyncConfigured() || !navigator.onLine) return false;
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(false), RECONCILE_BEFORE_START_TIMEOUT_MS));
+  if (!isSyncConfigured() || !navigator.onLine) return { ok: false, changed: false };
+  const timeout = new Promise((resolve) =>
+    setTimeout(() => resolve({ ok: false, changed: false, timedOut: true }), RECONCILE_BEFORE_START_TIMEOUT_MS)
+  );
   try {
     return await Promise.race([syncTick(), timeout]);
   } catch (e) {
-    return false;
+    return { ok: false, changed: false };
   }
 }
 
@@ -690,7 +700,7 @@ function renderSyncPanel() {
   }
 }
 
-function vocabSyncCreate() {
+async function vocabSyncCreate() {
   if (!isSyncProxyConfigured()) {
     setSyncStatus("跨裝置同步功能尚未設定，請聯絡開發者。", true);
     return;
@@ -699,7 +709,7 @@ function vocabSyncCreate() {
     setSyncStatus("目前沒有網路連線，無法建立同步。", true);
     return;
   }
-  const confirmed = confirm(
+  const confirmed = await window.VocabUI.confirm(
     "建立新同步會產生一組新的同步代碼與密碼，用來在你自己的其他裝置之間同步學習紀錄。\n\n" +
       "已經有代碼的話請改用「加入同步」。要繼續嗎？"
   );
@@ -755,7 +765,7 @@ function vocabSyncJoin() {
       setSyncStatus("找不到這組配對代碼，或密碼不正確，請確認後再試一次。", true);
       return;
     }
-    const confirmed = confirm(
+    const confirmed = await window.VocabUI.confirm(
       "加入同步會立刻用該代碼下的學習紀錄取代這台裝置目前的紀錄。\n\n" +
         "這台裝置目前的紀錄會先備份起來，解除同步後可以選擇找回，但要繼續嗎？"
     );
@@ -822,7 +832,7 @@ function vocabSyncNow() {
 // The recovery half of the safety net above: offered right after this
 // device is no longer part of any sync (unlink or delete), same moment
 // Orbit's own promptScheduleBackupRestore offers its schedule backup back.
-function promptRestoreBackupIfAny() {
+async function promptRestoreBackupIfAny() {
   const raw = readLocal(BACKUP_BEFORE_JOIN_KEY);
   writeLocal(BACKUP_BEFORE_JOIN_KEY, "");
   if (!raw) return;
@@ -832,7 +842,7 @@ function promptRestoreBackupIfAny() {
   } catch (e) {
     return;
   }
-  const confirmed = confirm("要找回加入同步前的本機學習紀錄嗎？（取消則繼續使用目前的學習紀錄）");
+  const confirmed = await window.VocabUI.confirm("要找回加入同步前的本機學習紀錄嗎？（取消則繼續使用目前的學習紀錄）");
   if (!confirmed) return;
   // `backup` is a full snapshot object from buildSyncSnapshotData() (see
   // vocabSyncJoin above), so its `progress` is in the same compact,
@@ -856,8 +866,8 @@ function performUnlink(statusMessage) {
   setSyncStatus(statusMessage);
 }
 
-function vocabSyncUnlink() {
-  const confirmed = confirm(
+async function vocabSyncUnlink() {
+  const confirmed = await window.VocabUI.confirm(
     "解除同步後這台裝置會變回只在本機儲存進度，之後可用同一組代碼重新加入。其他裝置不受影響。要繼續嗎？"
   );
   if (!confirmed) return;
@@ -883,7 +893,7 @@ function unlinkAfterReset() {
   performUnlink("已清除學習紀錄並解除同步（其他裝置與伺服器上的紀錄不受影響）。");
 }
 
-function vocabSyncDeleteForEveryone() {
+async function vocabSyncDeleteForEveryone() {
   const code = getSyncCode();
   const passcode = getSyncPasscode();
   if (!code || !passcode) return;
@@ -891,8 +901,9 @@ function vocabSyncDeleteForEveryone() {
     setSyncStatus("目前沒有網路連線，無法刪除同步。", true);
     return;
   }
-  const confirmed = confirm(
-    `確定要整個刪除這組同步（代碼 ${code}）嗎？\n\n所有使用這組代碼的裝置都會斷開連結，此動作無法復原。`
+  const confirmed = await window.VocabUI.confirm(
+    `確定要整個刪除這組同步（代碼 ${code}）嗎？\n\n所有使用這組代碼的裝置都會斷開連結，此動作無法復原。`,
+    { confirmText: "刪除", danger: true }
   );
   if (!confirmed) return;
   withButtonDisabled("sync-delete-btn", async () => {

@@ -13,6 +13,10 @@ const Logic = window.VocabLogic;
 
 const PROGRESS_KEY = "vocab_progress_v1";
 const SETTINGS_KEY = "vocab_settings_v1";
+// The three question-type categories the home screen's ratio sliders
+// control (see setWordRatio) - order also doubles as fallback priority
+// when passed straight through to Logic.selectQuestions's own ratio.
+const RATIO_KEYS = ["new", "incorrect", "learning"];
 
 /* ---------- Storage helpers ---------- */
 
@@ -38,8 +42,14 @@ function saveJSON(key, value) {
 // legacy entries from before this rewrite - and any entry missing a field
 // a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
+// wordRatio: percentages (0-100, summing to 100) of new/incorrect/learning
+// words in a round's question mix - see the home screen's three sliders
+// and setWordRatio below. Defaults to the old Vocabulary Test's 80/10/10
+// split; a user who wants the old Review Test's 70/30 (no new words) shape
+// just drags the sliders there (or taps the matching preset button) - one
+// mode, one adjustable mix, instead of two fixed modes to pick between.
 let settings = Object.assign(
-  { levels: [4, 5, 6], rate: 0.9, testMinutes: 10, reviewMinutes: 5 },
+  { levels: [4, 5, 6], rate: 0.9, testMinutes: 10, wordRatio: { new: 80, incorrect: 10, learning: 10 } },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -74,8 +84,11 @@ function applySettingsToUI() {
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
   document.getElementById("test-minutes").value = String(settings.testMinutes);
   document.getElementById("test-minutes-value").textContent = `${settings.testMinutes} 分鐘`;
-  document.getElementById("review-minutes").value = String(settings.reviewMinutes);
-  document.getElementById("review-minutes-value").textContent = `${settings.reviewMinutes} 分鐘`;
+  RATIO_KEYS.forEach((key) => {
+    const value = settings.wordRatio[key];
+    document.getElementById(`ratio-${key}`).value = String(value);
+    document.getElementById(`ratio-${key}-value`).textContent = `${value}%`;
+  });
 }
 
 // The read/write surface sync.js (and, in principle, anything else outside
@@ -121,9 +134,7 @@ const FORCE_SYNC_EVERY_N_ANSWERS = 20;
 let answersSinceForcedSync = 0;
 
 // Fetches (creating if needed) the history entry for a vocab item and
-// records one answer into it. Used by BOTH the Vocabulary Test and the
-// Review Test, so the two modes share one system rather than drifting
-// apart, per the app's design. `answer` is the exact text the user typed -
+// records one answer into it. `answer` is the exact text the user typed -
 // recorded (only when wrong) so a mistake can be reviewed later instead of
 // just a bare correct/incorrect flag.
 function recordResult(item, correct, responseMs, answer) {
@@ -149,6 +160,88 @@ function recordResult(item, correct, responseMs, answer) {
   }
   return { history: history, priorAvg: priorAvg };
 }
+
+/* ---------- Custom confirm dialog ---------- */
+
+// Replaces the browser's native confirm() everywhere in this app (and, via
+// window.VocabUI below, in sync.js too) - the native one renders as
+// unstyled OS chrome that looks out of place next to the rest of the UI,
+// and on an iOS Home Screen-installed PWA in particular can be mistaken
+// for a system prompt rather than something this page is asking. Backed by
+// the #modal-overlay markup in index.html; resolves true/false rather than
+// blocking the whole page the way window.confirm() does, so every call
+// site awaits it instead.
+let modalDialogOpen = false;
+function showConfirmDialog(message, opts) {
+  // Guards against a second confirm firing (e.g. a rapid double-tap on two
+  // different tabs) while one is already showing - window.confirm() was
+  // immune to this for free by blocking the whole page; this dialog isn't,
+  // so any overlapping call is simply declined rather than fighting the
+  // first dialog for the same DOM elements.
+  if (modalDialogOpen) return Promise.resolve(false);
+  modalDialogOpen = true;
+  const options = opts || {};
+  return new Promise((resolve) => {
+    const overlay = document.getElementById("modal-overlay");
+    const messageEl = document.getElementById("modal-message");
+    const okBtn = document.getElementById("modal-ok-btn");
+    const cancelBtn = document.getElementById("modal-cancel-btn");
+
+    messageEl.innerHTML = "";
+    String(message)
+      .split("\n")
+      .forEach((line) => {
+        const p = document.createElement("p");
+        p.textContent = line; // may be an empty string, fine as a spacer paragraph
+        messageEl.appendChild(p);
+      });
+
+    okBtn.textContent = options.confirmText || "確定";
+    okBtn.className = `btn ${options.danger ? "danger" : "primary"}`;
+    cancelBtn.textContent = options.cancelText || "取消";
+    cancelBtn.classList.toggle("hidden", !!options.hideCancel);
+
+    function cleanup(result) {
+      overlay.classList.add("hidden");
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      overlay.removeEventListener("mousedown", onOverlayMousedown);
+      document.removeEventListener("keydown", onKeydown);
+      modalDialogOpen = false;
+      resolve(result);
+    }
+    function onOk() {
+      cleanup(true);
+    }
+    function onCancel() {
+      cleanup(false);
+    }
+    // mousedown (not click) so a drag/select that starts inside the box and
+    // ends up released outside it doesn't get misread as a backdrop tap.
+    function onOverlayMousedown(e) {
+      if (e.target === overlay) cleanup(false);
+    }
+    function onKeydown(e) {
+      if (e.key === "Escape") cleanup(false);
+    }
+
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    overlay.addEventListener("mousedown", onOverlayMousedown);
+    document.addEventListener("keydown", onKeydown);
+
+    overlay.classList.remove("hidden");
+    okBtn.focus();
+  });
+}
+
+// The seam sync.js's own confirm prompts use (join/unlink/delete/restore-
+// backup) - same reasoning as window.VocabState/window.VocabSync: one
+// small cross-file surface instead of sync.js reaching into app.js's DOM
+// helpers directly.
+window.VocabUI = {
+  confirm: showConfirmDialog,
+};
 
 /* ---------- Vocabulary data ---------- */
 
@@ -325,17 +418,28 @@ let currentSource = null;
 let speakRequestId = 0;
 
 function getAudioContext() {
-  if (!audioCtx) {
+  if (!audioCtx || audioCtx.state === "closed") {
+    // iOS Safari doesn't just SUSPEND the AudioContext when a Home
+    // Screen-installed PWA is backgrounded (app-switcher swipe away) - it
+    // can fully CLOSE it to reclaim the audio hardware for whatever's now
+    // in the foreground. A closed context can never come back: resume()
+    // on it rejects and createBufferSource() throws, so without this
+    // check, returning to the app (swipe back in) leaves audio completely
+    // and permanently dead until the whole page reloads. A closed context
+    // is simply replaced with a fresh one here instead.
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     audioCtx = new AudioContextClass();
   }
-  // iOS suspends the context until a user gesture resumes it; calling this
-  // synchronously at the top of speak() (itself always called from a click/
-  // submit/keydown handler) - or, for start-test-btn/start-review-btn,
-  // synchronously at the very top of their click handler, before their own
-  // `await` - keeps the resume() call itself inside the gesture even
-  // though playback may not actually start until later.
-  if (audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  // Covers both the ordinary "suspended until a user gesture resumes it"
+  // state and iOS Safari's own "interrupted" state (a Safari-specific
+  // extension for a lesser interruption than a full close, e.g. a phone
+  // call) - resume() is a safe no-op if already running. Calling this
+  // synchronously at the top of speak() (itself always called from a
+  // click/submit/keydown handler) - or, for start-test-btn, synchronously
+  // at the very top of its own click handler - keeps the resume() call
+  // itself inside the user gesture even though playback may not actually
+  // start until later.
+  if (audioCtx.state !== "running") audioCtx.resume().catch(() => {});
   return audioCtx;
 }
 
@@ -367,7 +471,16 @@ function loadAudioBuffer(word) {
 // which one's promise resolves last.
 function speak(word) {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  const ctx = getAudioContext();
+  // Called here (synchronously, unlocking/rebuilding the context if it was
+  // suspended or closed - see getAudioContext()'s own comment) AND again
+  // below once the buffer is actually ready, rather than trusting this one
+  // reference for the whole async chain: if the app gets backgrounded and
+  // iOS closes the context WHILE a fetch/decode is still in flight, this
+  // captured `ctx` would be a dead object by the time playback tries to
+  // start on it. Re-checking via getAudioContext() again below is cheap
+  // (it's just a state check in the common case) and guarantees whatever
+  // actually calls createBufferSource() is never a stale closed context.
+  getAudioContext();
   const requestId = ++speakRequestId;
   if (currentSource) {
     try {
@@ -381,8 +494,9 @@ function speak(word) {
   loadAudioBuffer(word)
     .then(async (buffer) => {
       if (requestId !== speakRequestId) return; // superseded by a newer speak() call
-      if (ctx.state === "suspended") {
-        // Starting a buffer source while the context is still suspended can
+      let ctx = getAudioContext();
+      if (ctx.state !== "running") {
+        // Starting a buffer source while the context isn't running yet can
         // silently drop the audio on some browsers instead of queuing it -
         // wait for the resume already kicked off in getAudioContext() (or
         // kick/await one now) before actually starting playback.
@@ -392,6 +506,7 @@ function speak(word) {
           /* ignore - source.start below still no-ops safely if this never resolves */
         }
         if (requestId !== speakRequestId) return; // re-check: the await above may have taken a moment
+        ctx = getAudioContext(); // re-fetch once more in case the await above outlived a close+rebuild
       }
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -418,37 +533,33 @@ function showView(name) {
   if (name === "reviewlist") renderReviewList();
 }
 
-// Leaving the Vocabulary Test or Review Test view via a tab click used to
-// silently PAUSE an unfinished round (vocabTest.inProgress/
-// reviewTest.inProgress stayed true) rather than end it - the round was
-// still sitting there, built from whatever level checkboxes were checked
-// back when it started. Clicking "開始單字測驗"/"開始複習測驗" again just
-// resumed that same stale round (see those buttons' own handlers below:
-// `if (X.inProgress) { showView(...); return; }` skips rebuilding the list
-// entirely), even after changing the level checkboxes - which looked
-// exactly like "the test always picks Level 4" whenever an earlier round
-// happened to start Level-4-only and got abandoned via a tab click instead
-// of actually finished. Tab-clicking away from an unfinished round now
-// requires confirming, and confirming ends the round for real (not just
-// hides it) so the level checkboxes are honored the next time either
-// button is pressed.
+// Leaving the Vocabulary Test view via a tab click used to silently PAUSE
+// an unfinished round (vocabTest.inProgress stayed true) rather than end
+// it - the round was still sitting there, built from whatever level
+// checkboxes were checked back when it started. Clicking "開始測驗" again
+// just resumed that same stale round (see that button's own handler below:
+// `if (vocabTest.inProgress) { showView(...); return; }` skips rebuilding
+// the list entirely), even after changing the level checkboxes - which
+// looked exactly like "the test always picks Level 4" whenever an earlier
+// round happened to start Level-4-only and got abandoned via a tab click
+// instead of actually finished. Tab-clicking away from an unfinished round
+// now requires confirming, and confirming ends the round for real (not
+// just hides it) so the level checkboxes are honored next time.
 function isLeavingActiveRound() {
   const activeView = document.querySelector(".view.active");
-  if (!activeView) return false;
-  if (activeView.id === "view-test" && vocabTest.inProgress) return true;
-  if (activeView.id === "view-review" && reviewTest.inProgress) return true;
-  return false;
+  return !!activeView && activeView.id === "view-test" && vocabTest.inProgress;
 }
 
-document.getElementById("tabs").addEventListener("click", (e) => {
+document.getElementById("tabs").addEventListener("click", async (e) => {
   const btn = e.target.closest(".tab-btn");
   if (!btn) return;
   if (isLeavingActiveRound()) {
-    const label = document.querySelector(".view.active").id === "view-test" ? "單字測驗" : "複習測驗";
-    const confirmed = confirm(`${label}還沒完成，確定要離開嗎？\n\n離開後這一回合會結束，下次按「開始」會開始新的一回合（不會保留繼續作答）。`);
+    const confirmed = await showConfirmDialog(
+      "測驗還沒完成，確定要離開嗎？\n\n離開後這一回合會結束，下次按「開始測驗」會開始新的一回合（不會保留繼續作答）。",
+      { confirmText: "離開", danger: true }
+    );
     if (!confirmed) return;
     vocabTest.inProgress = false;
-    reviewTest.inProgress = false;
     stopRoundTimer();
   }
   showView(btn.dataset.view);
@@ -471,17 +582,6 @@ document.getElementById("level-picker").addEventListener("change", (e) => {
     e.target.checked = true; // must keep at least one level selected
   }
   updateLevelHint();
-});
-
-// Vocabulary Test and Review Test are two peer modes the user picks
-// between on the home screen (each only starts via its own button here -
-// see the note on start-test-btn/start-review-btn for why there's no top
-// nav tab for either). Switching modes just swaps which settings/start
-// button are visible; it doesn't touch either mode's in-progress state.
-document.getElementById("mode-picker").addEventListener("change", (e) => {
-  const mode = e.target.value;
-  document.getElementById("test-mode-settings").classList.toggle("hidden", mode !== "test");
-  document.getElementById("review-mode-settings").classList.toggle("hidden", mode !== "review");
 });
 
 document.getElementById("rate-select").addEventListener("input", (e) => {
@@ -518,25 +618,60 @@ document.getElementById("test-minutes-presets").addEventListener("click", (e) =>
   setTestMinutes(Number(btn.dataset.minutes));
 });
 
-function setReviewMinutes(minutes) {
-  const clamped = Math.min(30, Math.max(2, Math.round(minutes) || 2));
-  settings.reviewMinutes = clamped;
-  document.getElementById("review-minutes").value = String(clamped);
-  document.getElementById("review-minutes-value").textContent = `${clamped} 分鐘`;
+// Keeps the three ratio sliders always summing to exactly 100%, the way a
+// "budget allocation" control conventionally works: dragging one to
+// `newValue` takes the rest of the 100% away from (or gives it back to)
+// the OTHER two, split between them in proportion to their current values
+// (evenly if both are currently 0) - never a fourth silent "leftover"
+// category. The last key in RATIO_KEYS order always gets the exact
+// remainder rather than its own rounded share, so the three integers add
+// up to precisely 100 every time, not just approximately.
+function setWordRatio(changedKey, rawValue) {
+  const newValue = Math.max(0, Math.min(100, Math.round(rawValue) || 0));
+  const current = settings.wordRatio;
+  const others = RATIO_KEYS.filter((k) => k !== changedKey);
+  const othersCurrentSum = others.reduce((sum, k) => sum + current[k], 0);
+  const remaining = 100 - newValue;
+
+  const next = {};
+  next[changedKey] = newValue;
+  let assignedToOthers = 0;
+  others.forEach((key, i) => {
+    if (i === others.length - 1) {
+      next[key] = Math.max(0, remaining - assignedToOthers);
+      return;
+    }
+    const share = othersCurrentSum > 0
+      ? Math.round((current[key] / othersCurrentSum) * remaining)
+      : Math.round(remaining / others.length);
+    next[key] = Math.max(0, Math.min(remaining - assignedToOthers, share));
+    assignedToOthers += next[key];
+  });
+
+  settings.wordRatio = next;
+  RATIO_KEYS.forEach((key) => {
+    document.getElementById(`ratio-${key}`).value = String(next[key]);
+    document.getElementById(`ratio-${key}-value`).textContent = `${next[key]}%`;
+  });
   saveSettings();
 }
 
-document.getElementById("review-minutes").addEventListener("input", (e) => {
-  setReviewMinutes(Number(e.target.value));
+RATIO_KEYS.forEach((key) => {
+  document.getElementById(`ratio-${key}`).addEventListener("input", (e) => {
+    setWordRatio(key, Number(e.target.value));
+  });
 });
 
-document.getElementById("review-minutes-presets").addEventListener("click", (e) => {
-  const btn = e.target.closest("button[data-minutes]");
+document.getElementById("ratio-presets").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-ratio]");
   if (!btn) return;
-  setReviewMinutes(Number(btn.dataset.minutes));
+  const [newPct, incorrectPct, learningPct] = btn.dataset.ratio.split(",").map(Number);
+  settings.wordRatio = { new: newPct, incorrect: incorrectPct, learning: learningPct };
+  applySettingsToUI();
+  saveSettings();
 });
 
-/* ---------- Shared quiz mechanics (used by both Vocabulary Test and Review Test) ---------- */
+/* ---------- Shared quiz mechanics ---------- */
 
 // mm:ss, capped at 0 rather than going negative - used for the time-boxed
 // round's remaining-time display (see startRoundTimer below).
@@ -547,23 +682,22 @@ function formatMMSS(ms) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-// A round is time-boxed (see settings.testMinutes/reviewMinutes), not
-// question-counted, since we already record every answer's actual response
-// time - there's no need to make the user guess how many questions fit in
-// the time they have. The question LIST built at round start is still
-// sized generously (the full available pool - see start-test-btn/
-// start-review-btn below) so it never runs out before the clock does; the
-// clock, not the list length, is what ends the round.
+// A round is time-boxed (see settings.testMinutes), not question-counted,
+// since we already record every answer's actual response time - there's no
+// need to make the user guess how many questions fit in the time they
+// have. The question LIST built at round start is still sized generously
+// (the full available pool - see start-test-btn below) so it never runs
+// out before the clock does; the clock, not the list length, is what ends
+// the round.
 //
 // Ticks the visible countdown every second while a round is active - not
 // just when a new question is shown - so the display doesn't sit stale
 // while the user is still thinking about/typing the current word. Started
 // fresh (stopRoundTimer, then restarted) each time a round begins, stopped
-// by finishTest/finishReview when a round ends normally, and by the tabs
-// click handler above when a round is abandoned mid-way (see
-// isLeavingActiveRound) - that path doesn't call finishTest/finishReview
-// (no summary screen to show for an abandoned round), so it stops the
-// timer directly instead.
+// by finishTest when a round ends normally, and by the tabs click handler
+// above when a round is abandoned mid-way (see isLeavingActiveRound) - that
+// path doesn't call finishTest (no summary screen to show for an abandoned
+// round), so it stops the timer directly instead.
 let roundTimerHandle = null;
 function startRoundTimer(tickFn) {
   stopRoundTimer();
@@ -652,50 +786,77 @@ function updateTestTimeDisplay() {
 // DOM (just hidden via CSS) while inactive, so simply re-showing it is
 // enough to restore its on-screen state; only a *finished* round (or no
 // round at all yet) should build a fresh one.
-document.getElementById("start-test-btn").addEventListener("click", async (e) => {
+// Converts settings.wordRatio (0-100 integers summing to 100, the shape
+// the sliders edit directly) to the 0..1 fractions Logic.selectQuestions
+// expects.
+function currentWordRatioFraction() {
+  return {
+    new: settings.wordRatio.new / 100,
+    incorrect: settings.wordRatio.incorrect / 100,
+    learning: settings.wordRatio.learning / 100,
+  };
+}
+
+document.getElementById("start-test-btn").addEventListener("click", () => {
   if (vocabTest.inProgress) {
     showView("test");
     return;
   }
   const levels = selectedLevels();
   if (!levels.length) return;
-  // Unlocks the AudioContext synchronously, inside this click's own call
-  // stack, before the `await` below - see getAudioContext()'s comment.
-  // Doing this AFTER an await would risk losing the "tied to a user
-  // gesture" status some browsers (iOS Safari) require for resume() to
-  // actually take effect, which would otherwise make the word shown by
-  // showTestWord() below silent.
+  // Everything through showTestWord() below runs SYNCHRONOUSLY, inside
+  // this click's own call stack - no `await` anywhere before it. Both the
+  // AudioContext unlock (see getAudioContext()'s comment) and the mobile
+  // on-screen keyboard opening (input.focus() inside showTestWord) require
+  // browsers like iOS Safari to see them called directly from a trusted
+  // user gesture; an earlier version of this handler awaited a sync
+  // reconcile before reaching either one, which silently broke both -
+  // audio went silent and the keyboard stopped auto-opening. The reconcile
+  // below still happens, just AFTER the round is already visibly running,
+  // never blocking it.
   getAudioContext();
-  const startBtn = e.currentTarget;
-  startBtn.disabled = true;
-  try {
-    // Picks up any progress synced from another device since this device's
-    // last reconcile (page load, or last time it regained focus) - see
-    // reconcileBeforeStarting's own comment. Time-boxed against a short
-    // timeout, so a slow/offline network never blocks starting a round.
-    if (window.VocabSync) await window.VocabSync.reconcileBeforeStarting();
-    const pool = wordsForLevels(levels);
-    // The round is time-boxed (settings.testMinutes), not question-counted -
-    // request the WHOLE available pool up front so the list never runs out
-    // before the clock does (selectTestQuestions can't return more than
-    // pool.length distinct words anyway, so this is never wasteful, just
-    // generous). testTimeUp()/advanceTest() below are what actually end the
-    // round.
-    vocabTest.list = Logic.selectTestQuestions({ pool: pool, historyStore: progressStore, size: pool.length });
-    vocabTest.index = 0;
-    vocabTest.answeredCount = 0;
-    vocabTest.correctCount = 0;
-    vocabTest.missed = [];
-    vocabTest.inProgress = true;
-    vocabTest.startedAt = Date.now();
-    vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
-    document.getElementById("test-summary").classList.add("hidden");
-    document.getElementById("test-form").classList.remove("hidden");
-    showView("test");
-    startRoundTimer(updateTestTimeDisplay);
-    showTestWord();
-  } finally {
-    startBtn.disabled = false;
+  const pool = wordsForLevels(levels);
+  const ratio = currentWordRatioFraction();
+  // The round is time-boxed (settings.testMinutes), not question-counted -
+  // request the WHOLE available pool up front so the list never runs out
+  // before the clock does (selectQuestions can't return more than
+  // pool.length distinct words anyway, so this is never wasteful, just
+  // generous). testTimeUp()/advanceTest() below are what actually end the
+  // round.
+  vocabTest.list = Logic.selectQuestions({ pool: pool, historyStore: progressStore, size: pool.length, ratio: ratio });
+  vocabTest.index = 0;
+  vocabTest.answeredCount = 0;
+  vocabTest.correctCount = 0;
+  vocabTest.missed = [];
+  vocabTest.inProgress = true;
+  vocabTest.startedAt = Date.now();
+  vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
+  document.getElementById("test-summary").classList.add("hidden");
+  document.getElementById("test-form").classList.remove("hidden");
+  showView("test");
+  startRoundTimer(updateTestTimeDisplay);
+  showTestWord();
+
+  // Picks up any progress synced from another device since this device's
+  // last reconcile (page load, or last time it regained focus) - fired
+  // here, AFTER the round is already showing its first word, specifically
+  // so it can never delay or interfere with the synchronous gesture chain
+  // above. If it actually pulls something newer, only the not-yet-reached
+  // TAIL of this round's list is rebuilt with it (excluding words already
+  // presented, so nothing repeats) - the word currently on screen, and
+  // everything already answered, is left completely alone.
+  if (window.VocabSync) {
+    window.VocabSync.reconcileBeforeStarting().then((result) => {
+      if (!result || !result.changed || !vocabTest.inProgress) return;
+      const presented = new Set(vocabTest.list.slice(0, vocabTest.index + 1).map((w) => w.word.toLowerCase()));
+      const freshList = Logic.selectQuestions({
+        pool: wordsForLevels(levels),
+        historyStore: progressStore,
+        size: pool.length,
+        ratio: currentWordRatioFraction(),
+      }).filter((w) => !presented.has(w.word.toLowerCase()));
+      vocabTest.list = vocabTest.list.slice(0, vocabTest.index + 1).concat(freshList);
+    });
   }
 });
 
@@ -786,7 +947,7 @@ function finishTest() {
   if (vocabTest.missed.length) {
     const p = document.createElement("p");
     p.className = "hint";
-    p.textContent = "拼錯的單字（點擊查看中文意思，已加入複習測驗清單）：";
+    p.textContent = "拼錯的單字（點擊查看中文意思，已加入「答錯待複習」清單）：";
     missedDiv.appendChild(p);
     const holder = document.createElement("div");
     missedDiv.appendChild(holder);
@@ -819,203 +980,6 @@ document.getElementById("test-again-btn").addEventListener("click", () => {
   document.getElementById("start-test-btn").click();
 });
 document.getElementById("test-home-btn").addEventListener("click", () => showView("home"));
-
-/* ---------- Review Test mode (auto-quizzes the wrong-word list) ---------- */
-
-const reviewTest = {
-  list: [],
-  index: 0,
-  records: [],
-  answered: false,
-  wordShownAt: 0,
-  startedAt: 0,
-  timeLimitMs: 0,
-  inProgress: false,
-};
-
-function reviewTimeUp() {
-  return Date.now() - reviewTest.startedAt >= reviewTest.timeLimitMs;
-}
-function updateReviewTimeDisplay() {
-  const elapsedMs = Date.now() - reviewTest.startedAt;
-  document.getElementById("rev-progress-text").textContent = formatMMSS(reviewTest.timeLimitMs - elapsedMs);
-  document.getElementById("rev-progress-fill").style.width = `${Math.min(100, (elapsedMs / reviewTest.timeLimitMs) * 100)}%`;
-}
-
-// Same "no dedicated tab, resume on return" rule as the Vocabulary Test -
-// see the comment on start-test-btn above.
-document.getElementById("start-review-btn").addEventListener("click", async (e) => {
-  if (reviewTest.inProgress) {
-    showView("review");
-    return;
-  }
-  const levels = selectedLevels();
-  if (!levels.length) return;
-  // See the matching comment on start-test-btn above: this must run
-  // synchronously, before the `await` below, to keep the eventual
-  // showReviewWord() -> speak() call tied to this click's user gesture.
-  getAudioContext();
-  const startBtn = e.currentTarget;
-  startBtn.disabled = true;
-  try {
-    // See reconcileBeforeStarting's own comment - picks up any progress
-    // synced from another device since this device's last reconcile.
-    if (window.VocabSync) await window.VocabSync.reconcileBeforeStarting();
-    const pool = wordsForLevels(levels);
-    // size: 0 means "all available" (see buildReviewTestList) - same reason
-    // as the Vocabulary Test's pool.length above: the round is time-boxed
-    // (settings.reviewMinutes), not question-counted, so request everything
-    // there is to review and let the clock decide how much of it gets used.
-    reviewTest.list = Logic.buildReviewTestList({ pool: pool, historyStore: progressStore, size: 0 });
-    reviewTest.index = 0;
-    reviewTest.records = [];
-
-    showView("review");
-    const empty = document.getElementById("rev-empty");
-    const body = document.getElementById("rev-body");
-    const summary = document.getElementById("rev-summary");
-    summary.classList.add("hidden");
-
-    if (!reviewTest.list.length) {
-      empty.classList.remove("hidden");
-      body.classList.add("hidden");
-      return;
-    }
-    reviewTest.inProgress = true;
-    reviewTest.startedAt = Date.now();
-    reviewTest.timeLimitMs = settings.reviewMinutes * 60 * 1000;
-    empty.classList.add("hidden");
-    body.classList.remove("hidden");
-    document.getElementById("rev-form").classList.remove("hidden");
-    startRoundTimer(updateReviewTimeDisplay);
-    showReviewWord();
-  } finally {
-    startBtn.disabled = false;
-  }
-});
-
-document.getElementById("rev-empty-home-btn").addEventListener("click", () => showView("home"));
-
-function showReviewWord() {
-  const item = reviewTest.list[reviewTest.index];
-  updateReviewTimeDisplay();
-  document.getElementById("rev-level-badge").textContent = `Level ${item.level}`;
-
-  reviewTest.answered = false;
-  const input = document.getElementById("rev-input");
-  input.value = "";
-  input.disabled = false;
-  document.getElementById("rev-submit-btn").disabled = false;
-  document.getElementById("rev-feedback").classList.add("hidden");
-  document.getElementById("rev-next-btn").classList.add("hidden");
-  input.focus();
-
-  reviewTest.wordShownAt = Date.now();
-  speak(item.word);
-}
-
-document.getElementById("rev-play-btn").addEventListener("click", () => {
-  speak(reviewTest.list[reviewTest.index].word);
-});
-document.getElementById("rev-replay-btn").addEventListener("click", () => {
-  speak(reviewTest.list[reviewTest.index].word);
-});
-
-document.getElementById("rev-form").addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (reviewTest.answered) {
-    advanceReview();
-    return;
-  }
-  const item = reviewTest.list[reviewTest.index];
-  const input = document.getElementById("rev-input");
-  const guess = input.value.trim().toLowerCase();
-  const correct = guess === item.word.toLowerCase();
-  const elapsed = Date.now() - reviewTest.wordShownAt;
-
-  const { priorAvg } = recordResult(item, correct, elapsed, guess);
-  reviewTest.answered = true;
-  input.disabled = true;
-  reviewTest.records.push({ word: item.word, correct: correct, responseMs: elapsed, priorAvg: priorAvg });
-
-  const note = correct ? speedNote(priorAvg, elapsed) : null;
-  renderAnswerFeedback(document.getElementById("rev-feedback"), item, correct, guess, note);
-
-  const isLast = reviewTimeUp() || reviewTest.index >= reviewTest.list.length - 1;
-  const nextBtn = document.getElementById("rev-next-btn");
-  nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
-  nextBtn.classList.remove("hidden");
-});
-
-document.getElementById("rev-next-btn").addEventListener("click", advanceReview);
-
-function advanceReview() {
-  if (!reviewTimeUp() && reviewTest.index < reviewTest.list.length - 1) {
-    reviewTest.index += 1;
-    showReviewWord();
-  } else {
-    finishReview();
-  }
-}
-
-function finishReview() {
-  reviewTest.inProgress = false;
-  stopRoundTimer();
-  document.getElementById("rev-progress-fill").style.width = "100%";
-  document.getElementById("rev-body").classList.add("hidden");
-
-  const records = reviewTest.records;
-  const total = records.length;
-  const correctCount = records.filter((r) => r.correct).length;
-  const stillIncorrect = total - correctCount;
-  const accuracy = total ? Math.round((correctCount / total) * 100) : 0;
-
-  document.getElementById("rev-summary-score").textContent =
-    `共複習 ${total} 題　答對 ${correctCount} 題　仍答錯 ${stillIncorrect} 題　複習正確率 ${accuracy}%`;
-
-  // Response-time change: compare this round's elapsed time against each
-  // word's own PRE-round baseline (priorAvg), for words that had one.
-  const withBaseline = records.filter((r) => r.correct && r.priorAvg != null);
-  let trendText = "尚無足夠的歷史資料可比較反應時間變化。";
-  if (withBaseline.length) {
-    const deltas = withBaseline.map((r) => r.priorAvg - r.responseMs); // positive = faster than before
-    const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-    const improvedCount = deltas.filter((d) => d > 0).length;
-    if (avgDelta > 0) {
-      trendText = `本次答對的單字中，平均反應時間比之前快了約 ${Math.round(avgDelta)} 毫秒（${improvedCount}/${withBaseline.length} 個字進步）。`;
-    } else {
-      trendText = `本次答對的單字中，平均反應時間比之前慢了約 ${Math.round(-avgDelta)} 毫秒，可能需要再多練習幾次。`;
-    }
-  }
-  document.getElementById("rev-summary-trend").textContent = trendText;
-
-  const wordsDiv = document.getElementById("rev-summary-words");
-  wordsDiv.innerHTML = "";
-  const p = document.createElement("p");
-  p.className = "hint";
-  // A word's state updates the instant it's answered - answering an
-  // incorrect word correctly here already moved it out of "incorrect"
-  // (into "learning" or straight to "memorized" on a 2nd correct in a
-  // row); no separate confirmation step is needed.
-  p.textContent = "本回合複習的單字（點擊查看中文意思，答對的單字已自動更新狀態）：";
-  wordsDiv.appendChild(p);
-  const holder = document.createElement("div");
-  wordsDiv.appendChild(holder);
-  // reviewTest.list was built generously (size: 0 = all available - see
-  // start-review-btn) since the round is time-boxed, not question-counted;
-  // only the prefix actually reached (one item per recorded answer) was
-  // really part of this round.
-  renderWordChipList(holder, reviewTest.list.slice(0, total));
-
-  document.getElementById("rev-summary").classList.remove("hidden");
-  // Same immediate-sync-on-finish as the Vocabulary Test - see finishTest.
-  if (window.VocabSync) window.VocabSync.syncNow();
-}
-
-document.getElementById("rev-again-btn").addEventListener("click", () => {
-  document.getElementById("start-review-btn").click();
-});
-document.getElementById("rev-home-btn").addEventListener("click", () => showView("home"));
 
 /* ---------- Review List (browsable Learning / Incorrect words) ---------- */
 
@@ -1050,8 +1014,9 @@ function sortReviewListItems(items, mode) {
     case "slow":
     default:
       // Slowest (relative to their own history) first, matching the same
-      // "needs more practice" priority the Review Test uses; words with no
-      // timing data yet sort last.
+      // "needs more practice" priority the quiz's own question selection
+      // uses (see logic.js's reviewPriorityWeight); words with no timing
+      // data yet sort last.
       arr.sort((a, b) => (b.detail.avgCorrectResponseMs ?? -1) - (a.detail.avgCorrectResponseMs ?? -1));
   }
   return arr;
@@ -1268,7 +1233,7 @@ function renderProgress() {
     else trendText = "近期反應時間大致穩定。";
   }
   document.getElementById("progress-trend-hint").textContent =
-    `${trendText} 複習測驗會優先挑選比你「平均反應時間」慢的單字加強練習。`;
+    `${trendText} 「答錯待複習」與「學習中」的單字裡，測驗會優先挑選比你「平均反應時間」慢的加強練習。`;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {
@@ -1360,7 +1325,7 @@ function renderWordTable() {
     .join("");
 
   container.innerHTML = `
-    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。複習測驗會依你的平均反應時間，優先挑選比較慢、比較久沒複習的單字。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
+    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。測驗會依你的平均反應時間，優先挑選比較慢、比較久沒複習的單字。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
     <div class="word-table-wrap">
       <table class="word-table">
         <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="連續答對次數">連續正確</th><th>平均反應時間</th><th>最近錯誤</th><th>狀態</th></tr></thead>
@@ -1418,7 +1383,7 @@ document.getElementById("import-progress-file").addEventListener("change", (e) =
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     let parsed;
     try {
       parsed = JSON.parse(reader.result);
@@ -1433,9 +1398,10 @@ document.getElementById("import-progress-file").addEventListener("change", (e) =
     }
 
     const wordCount = Object.keys(importedProgress).length;
-    const confirmed = confirm(
+    const confirmed = await showConfirmDialog(
       `即將匯入備份檔（${wordCount} 個單字的紀錄${parsed.exportedAt ? `，匯出於 ${parsed.exportedAt.slice(0, 10)}` : ""}）。\n\n` +
-      "這會「取代」目前這台裝置瀏覽器裡的全部學習紀錄，無法復原，確定要繼續嗎？"
+      "這會「取代」目前這台裝置瀏覽器裡的全部學習紀錄，無法復原，確定要繼續嗎？",
+      { confirmText: "匯入", danger: true }
     );
     if (!confirmed) return;
 
@@ -1455,20 +1421,23 @@ document.getElementById("import-progress-file").addEventListener("change", (e) =
   reader.readAsText(file);
 });
 
-document.getElementById("reset-progress-btn").addEventListener("click", () => {
-  if (confirm("確定要清除全部學習紀錄嗎？此動作無法復原。")) {
-    progressStore = {};
-    saveProgress();
-    renderProgress();
-    // Clearing also unlinks sync (if configured) - see sync.js's
-    // unlinkAfterReset for why: staying paired would just have the very
-    // next automatic sync tick pull the pre-reset data back down again
-    // (this device's now-zero progress correctly looks "behind" the
-    // server), silently undoing the reset. Unlinking is unambiguous: this
-    // device simply isn't part of any sync anymore until rejoined, and
-    // the server/other devices are untouched either way.
-    if (window.VocabSync) window.VocabSync.unlinkAfterReset();
-  }
+document.getElementById("reset-progress-btn").addEventListener("click", async () => {
+  const confirmed = await showConfirmDialog("確定要清除全部學習紀錄嗎？此動作無法復原。", {
+    confirmText: "清除",
+    danger: true,
+  });
+  if (!confirmed) return;
+  progressStore = {};
+  saveProgress();
+  renderProgress();
+  // Clearing also unlinks sync (if configured) - see sync.js's
+  // unlinkAfterReset for why: staying paired would just have the very
+  // next automatic sync tick pull the pre-reset data back down again
+  // (this device's now-zero progress correctly looks "behind" the
+  // server), silently undoing the reset. Unlinking is unambiguous: this
+  // device simply isn't part of any sync anymore until rejoined, and
+  // the server/other devices are untouched either way.
+  if (window.VocabSync) window.VocabSync.unlinkAfterReset();
 });
 
 /* ---------- Check for updates ---------- */
