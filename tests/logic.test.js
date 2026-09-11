@@ -228,16 +228,25 @@ test("weightedShuffle picks the higher-weight item first far more often than cha
   assert.ok(rate < 1, "it should not be a rigid, deterministic guarantee every single trial");
 });
 
-/* ================= Question selection: 80/10/10 regular test ================= */
+/* ================= Question selection: one ratio-driven mode ================= */
 
-test("computeTestTargets scales the 80/10/10 ratio to arbitrary sizes", () => {
-  assert.deepEqual(L.computeTestTargets(80), { new: 64, incorrect: 8, learning: 8 });
-  const t20 = L.computeTestTargets(20);
+test("computeQuestionTargets scales the default 80/10/10 ratio to arbitrary sizes, summing exactly to size", () => {
+  assert.deepEqual(L.computeQuestionTargets(80, L.CONFIG.defaultQuestionRatio), { new: 64, incorrect: 8, learning: 8 });
+  const t20 = L.computeQuestionTargets(20, L.CONFIG.defaultQuestionRatio);
   assert.equal(t20.new + t20.incorrect + t20.learning, 20);
   assert.equal(t20.new, 16);
 });
 
-test("selectTestQuestions hits the target 80/10/10 mix when all categories have ample supply", () => {
+test("computeQuestionTargets normalizes a ratio that doesn't sum to 1 and still sums exactly to size", () => {
+  // A user-dragged slider ratio like {70,30,0} out of 100 - percentages,
+  // not fractions - should normalize the same as a fractional one.
+  const t = L.computeQuestionTargets(20, { new: 0, incorrect: 70, learning: 30 });
+  assert.equal(t.new + t.incorrect + t.learning, 20);
+  assert.equal(t.incorrect, 14);
+  assert.equal(t.learning, 6);
+});
+
+test("selectQuestions hits the default 80/10/10 mix when all categories have ample supply", () => {
   const historyStore = {};
   const newWords = makePool(200, 4, "new");
   const incorrectWords = makePool(50, 5, "bad");
@@ -255,7 +264,7 @@ test("selectTestQuestions hits the target 80/10/10 mix when all categories have 
   }
 
   const pool = newWords.concat(incorrectWords, learningWords);
-  const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(42) });
+  const selection = L.selectQuestions({ pool, historyStore, size: 80, random: seededRandom(42) });
 
   assert.equal(selection.length, 80);
   const cats = L.categorizeWords(selection, historyStore);
@@ -264,7 +273,37 @@ test("selectTestQuestions hits the target 80/10/10 mix when all categories have 
   assert.equal(cats.learning.length, 8);
 });
 
-test("selectTestQuestions never duplicates a word within one test", () => {
+test("selectQuestions honors a custom ratio - e.g. the old Review Test's 70/30 incorrect/learning, no new words", () => {
+  const historyStore = {};
+  const incorrectWords = makePool(50, 4, "bad");
+  const learningWords = makePool(50, 5, "mid");
+  const newWords = makePool(50, 6, "new");
+  for (const w of incorrectWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  for (const w of learningWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: true, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const pool = incorrectWords.concat(learningWords, newWords);
+  const selection = L.selectQuestions({
+    pool,
+    historyStore,
+    size: 20,
+    ratio: { new: 0, incorrect: 0.7, learning: 0.3 },
+    random: seededRandom(11),
+  });
+  assert.equal(selection.length, 20);
+  const cats = L.categorizeWords(selection, historyStore);
+  assert.equal(cats.incorrect.length, 14);
+  assert.equal(cats.learning.length, 6);
+  assert.equal(cats.unseen.length, 0, "new words must never appear when their ratio slider is 0%");
+});
+
+test("selectQuestions never duplicates a word within one round", () => {
   const historyStore = {};
   const pool = makePool(100, 4, "u");
   for (let i = 0; i < 30; i++) {
@@ -273,12 +312,12 @@ test("selectTestQuestions never duplicates a word within one test", () => {
     L.recordAttempt(h, { correct: i % 2 === 0, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
     historyStore[w.word.toLowerCase()] = h;
   }
-  const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(7) });
+  const selection = L.selectQuestions({ pool, historyStore, size: 80, random: seededRandom(7) });
   const words = selection.map((w) => w.word.toLowerCase());
   assert.equal(new Set(words).size, words.length);
 });
 
-test("selectTestQuestions falls back intelligently when a category is short on candidates", () => {
+test("selectQuestions falls back intelligently (within non-zero-ratio categories) when one is short on candidates", () => {
   const historyStore = {};
   const pool = makePool(90, 4, "u");
   const incorrectFew = pool.slice(0, 2);
@@ -294,20 +333,43 @@ test("selectTestQuestions falls back intelligently when a category is short on c
     historyStore[w.word.toLowerCase()] = h;
   }
 
-  const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(3) });
-  assert.equal(selection.length, 80, "shortfall in one category should be made up elsewhere, not shrink the test");
+  const selection = L.selectQuestions({ pool, historyStore, size: 80, random: seededRandom(3) });
+  assert.equal(selection.length, 80, "shortfall in one category should be made up elsewhere, not shrink the round");
   const words = new Set(selection.map((w) => w.word.toLowerCase()));
   assert.equal(words.size, 80);
 });
 
-test("selectTestQuestions returns at most the pool size when the pool itself is smaller than requested", () => {
+test("selectQuestions never redistributes a shortfall into a category whose ratio is 0%", () => {
+  const historyStore = {};
+  // Only 2 incorrect words exist, but incorrect's ratio is 100% and every
+  // other category is 0% - it must NOT fall back to filling the rest from
+  // new/learning just because they have supply; that would silently ignore
+  // the user's explicit "review only" choice.
+  const pool = makePool(90, 4, "u");
+  const incorrectFew = pool.slice(0, 2);
+  for (const w of incorrectFew) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const selection = L.selectQuestions({
+    pool,
+    historyStore,
+    size: 80,
+    ratio: { new: 0, incorrect: 1, learning: 0 },
+    random: seededRandom(3),
+  });
+  assert.equal(selection.length, 2, "only the 2 genuinely-incorrect words should come back, not padded from other categories");
+});
+
+test("selectQuestions returns at most the pool size when the pool itself is smaller than requested", () => {
   const pool = makePool(15, 4, "tiny");
-  const selection = L.selectTestQuestions({ pool, historyStore: {}, size: 80, random: seededRandom(1) });
+  const selection = L.selectQuestions({ pool, historyStore: {}, size: 80, random: seededRandom(1) });
   assert.equal(selection.length, 15);
   assert.equal(new Set(selection.map((w) => w.word)).size, 15);
 });
 
-test("selectTestQuestions excludes Memorized words entirely - they've graduated out of the rotation", () => {
+test("selectQuestions excludes Memorized words entirely - they've graduated out of the rotation", () => {
   const historyStore = {};
   const memorizedWord = makeWord("done", 4);
   const h = L.createEmptyWordHistory("done", 4, 4);
@@ -315,109 +377,17 @@ test("selectTestQuestions excludes Memorized words entirely - they've graduated 
   historyStore.done = h;
 
   const pool = [memorizedWord];
-  const selection = L.selectTestQuestions({ pool, historyStore, size: 80, random: seededRandom(5) });
+  const selection = L.selectQuestions({ pool, historyStore, size: 80, random: seededRandom(5) });
   assert.equal(selection.length, 0, "the only word in the pool is Memorized, so there is nothing left to select");
 });
 
-/* ================= Question selection: 70/30 Review Test ================= */
-
-test("computeReviewTargets scales the 70/30 ratio to arbitrary sizes", () => {
-  assert.deepEqual(L.computeReviewTargets(20), { incorrect: 14, learning: 6 });
-  assert.deepEqual(L.computeReviewTargets(10), { incorrect: 7, learning: 3 });
-});
-
-test("buildReviewTestList hits the 70/30 incorrect/learning mix when both have ample supply", () => {
-  const historyStore = {};
-  const incorrectWords = makePool(50, 4, "bad");
-  const learningWords = makePool(50, 5, "mid");
-  for (const w of incorrectWords) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: false, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  for (const w of learningWords) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: true, responseMs: 1000, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  const pool = incorrectWords.concat(learningWords);
-  const selection = L.buildReviewTestList({ pool, historyStore, size: 20, random: seededRandom(11) });
-  assert.equal(selection.length, 20);
-  const cats = L.categorizeWords(selection, historyStore);
-  assert.equal(cats.incorrect.length, 14);
-  assert.equal(cats.learning.length, 6);
-});
-
-test("buildReviewTestList falls back between incorrect and learning when one category is short", () => {
-  const historyStore = {};
-  const pool = makePool(30, 4, "u");
-  const incorrectFew = pool.slice(0, 2);
-  const learningMany = pool.slice(2, 30);
-  for (const w of incorrectFew) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  for (const w of learningMany) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: true, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  const selection = L.buildReviewTestList({ pool, historyStore, size: 20, random: seededRandom(4) });
-  assert.equal(selection.length, 20, "shortfall in incorrect should be made up from learning");
-});
-
-test("buildReviewTestList respects a custom user-chosen size", () => {
-  const historyStore = {};
-  const pool = makePool(30, 4, "u");
-  for (const w of pool) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  const selection = L.buildReviewTestList({ pool, historyStore, size: 5, random: seededRandom(2) });
-  assert.equal(selection.length, 5);
-});
-
-test("buildReviewTestList size=0 means 'all available'", () => {
-  const historyStore = {};
-  const pool = makePool(7, 4, "u");
-  for (const w of pool) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  const selection = L.buildReviewTestList({ pool, historyStore, size: 0, random: seededRandom(2) });
-  assert.equal(selection.length, 7);
-});
-
-test("buildReviewTestList with no size given defaults to CONFIG.defaultReviewSize, capped to what's available", () => {
-  const historyStore = {};
-  const pool = makePool(200, 4, "u");
-  for (const w of pool) {
-    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
-    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
-    historyStore[w.word.toLowerCase()] = h;
-  }
-  const selection = L.buildReviewTestList({ pool, historyStore, random: seededRandom(2) });
-  assert.equal(selection.length, L.CONFIG.defaultReviewSize);
-});
-
-test("buildReviewTestList excludes Memorized and never-attempted words", () => {
-  const historyStore = {};
-  const memorizedWord = makeWord("done", 4);
-  const h = L.createEmptyWordHistory("done", 4, 4);
-  play(h, [{ correct: true }, { correct: true }]);
-  historyStore.done = h;
-
-  const newWord = makeWord("fresh", 4); // never attempted, no history entry at all
-
-  const selection = L.buildReviewTestList({ pool: [memorizedWord, newWord], historyStore, random: seededRandom(1) });
-  assert.equal(selection.length, 0);
-});
-
-test("buildReviewTestList returns an empty list (not an error) when nothing needs review", () => {
-  const selection = L.buildReviewTestList({ pool: makePool(5, 4, "x"), historyStore: {}, random: seededRandom(1) });
+test("selectQuestions returns an empty list (not an error) when every ratio slider is 0%", () => {
+  const selection = L.selectQuestions({
+    pool: makePool(5, 4, "x"),
+    historyStore: {},
+    ratio: { new: 0, incorrect: 0, learning: 0 },
+    random: seededRandom(1),
+  });
   assert.deepEqual(selection, []);
 });
 

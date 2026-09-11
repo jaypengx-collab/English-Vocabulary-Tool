@@ -208,7 +208,7 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   transition: width 0.25s ease;
 }
 
-#test-progress-text, #rev-progress-text {
+#test-progress-text {
   font-size: 0.8rem;
   color: var(--muted);
   white-space: nowrap;
@@ -241,14 +241,14 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 .play-btn:active { transform: scale(0.96); }
 
-#test-form, #rev-form {
+#test-form {
   display: flex;
   flex-direction: column;
   align-items: center;
   margin-top: 16px;
 }
 
-#test-input, #rev-input {
+#test-input {
   width: 100%;
   max-width: 320px;
   text-align: center;
@@ -599,4 +599,134 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 @media (max-width: 480px) {
   .play-btn { width: 76px; height: 76px; font-size: 1.7rem; }
+}
+
+/* ---------- Cross-device sync panel ---------- */
+
+#sync-join-fold {
+  margin-top: 4px;
+}
+
+#sync-join-fold summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 6px 0;
+  list-style: none;
+}
+
+#sync-join-fold summary::-webkit-details-marker { display: none; }
+#sync-join-fold summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s ease;
+}
+#sync-join-fold[open] summary::before { transform: rotate(90deg); }
+
+#sync-join-fold[open] {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 4px 12px 12px 12px;
+  margin-top: 8px;
+}
+
+.sync-created-box {
+  background: rgba(240, 140, 0, 0.08);
+  border: 1px solid var(--warn);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+#sync-active-box strong, #sync-created-codes strong {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 1.05rem;
+  letter-spacing: 1px;
+}
+
+#sync-status {
+  min-height: 1.2em;
+}
+
+/* ---------- Word-type ratio sliders (home screen) ---------- */
+
+.ratio-value {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Custom confirm dialog (replaces the native confirm()) ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  padding: 20px;
+  width: 100%;
+  max-width: 380px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#modal-message p {
+  margin: 0 0 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+#modal-message p:last-child { margin-bottom: 0; }
+
+.modal-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+}
+
+/* ---------- General interaction polish ---------- */
+
+.btn {
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.btn:hover:not(:disabled) { filter: brightness(1.08); }
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+  filter: none;
+}
+
+.tab-btn, .filter-chip, .level-chip {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+input[type="text"]:focus, input[type="number"]:focus, select:focus {
+  border-color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
 }

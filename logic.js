@@ -41,19 +41,16 @@
     // below, never for the Memorized label.
     emaAlpha: 0.25,
 
-    // Regular Vocabulary Test ratio: mostly new words, with small slices
-    // revisiting currently-wrong and currently-learning words. Scaled
-    // proportionally to whatever size is requested. Memorized words are
-    // deliberately excluded from the regular test pool - they've already
-    // graduated, so slots go to words that still need work.
-    defaultTestSize: 80,
-    testRatio: { new: 0.8, incorrect: 0.1, learning: 0.1 },
-
-    // Review Test ratio: weighted toward currently-wrong words, with a
-    // smaller slice for shakier not-yet-memorized "learning" words.
-    // Memorized words are excluded here too - nothing to review.
-    defaultReviewSize: 20,
-    reviewRatio: { incorrect: 0.7, learning: 0.3 },
+    // Default question-type mix for a round: mostly new words, with small
+    // slices revisiting currently-wrong and currently-learning words.
+    // Scaled proportionally to whatever size is requested. Memorized words
+    // are deliberately excluded from selection entirely - they've already
+    // graduated, so slots go to words that still need work. The user can
+    // override this ratio via the home screen's three percentage sliders
+    // (see selectQuestions's own `ratio` option) - this is only the
+    // starting point shown there, not a fixed mode.
+    defaultQuestionSize: 80,
+    defaultQuestionRatio: { new: 0.8, incorrect: 0.1, learning: 0.1 },
 
     // Review-selection priority weighting, by response time: a word's own
     // average correct-response time is compared against the user's
@@ -462,92 +459,64 @@
     return deduped;
   }
 
-  /* ---------- Regular Vocabulary Test: 80/10/10 question selection ---------- */
+  /* ---------- Question selection: ratio-driven, one mode ---------- */
 
-  // Target counts for each category, scaled proportionally to `size` so
-  // smaller/legacy session sizes keep the same 80/10/10 shape.
-  function computeTestTargets(size) {
-    const ratio = CONFIG.testRatio;
-    const newTarget = Math.round(size * ratio.new);
-    const incorrectTarget = Math.round(size * ratio.incorrect);
+  // Target counts for each of the three selectable categories, scaled from
+  // `ratio` (need not sum to exactly 1 - normalized here) proportionally to
+  // `size`. The LAST category (learning) absorbs whatever rounding leaves
+  // over, so the three targets always sum to exactly `size` - not just
+  // approximately, the way three independently-rounded numbers could drift
+  // by one.
+  function computeQuestionTargets(size, ratio) {
+    const r = ratio || CONFIG.defaultQuestionRatio;
+    const raw = { new: Math.max(0, r.new || 0), incorrect: Math.max(0, r.incorrect || 0), learning: Math.max(0, r.learning || 0) };
+    const total = raw.new + raw.incorrect + raw.learning || 1;
+    const newTarget = Math.round((size * raw.new) / total);
+    const incorrectTarget = Math.round((size * raw.incorrect) / total);
     const learningTarget = Math.max(0, size - newTarget - incorrectTarget);
     return { new: newTarget, incorrect: incorrectTarget, learning: learningTarget };
   }
 
-  // Builds the regular Vocabulary Test question list: 80% new/unseen, 10%
-  // currently-incorrect, 10% currently-learning by default, redistributing
-  // missing slots intelligently when a category runs short, never
-  // duplicating a word. Memorized words are excluded - they've graduated.
-  function selectTestQuestions(opts) {
+  // Builds one round's question list, mixing new/unseen, currently-incorrect,
+  // and currently-learning words according to `opts.ratio` (each 0..1, need
+  // not sum to exactly 1; defaults to CONFIG.defaultQuestionRatio, the old
+  // 80/10/10 "mostly new words" shape) - this is the one selection function
+  // for the app's one practice mode: what used to be two fixed modes
+  // (Vocabulary Test's 80/10/10, Review Test's 70/30-with-no-new-words) are
+  // now just two points on the same ratio the user can set anywhere via the
+  // home screen's sliders (0% on a category simply excludes it, including
+  // from the fallback redistribution below - a slider set to 0 means never
+  // show that category, not "only as a last resort"). Redistributes a
+  // shortfall in one category into the other non-zero categories (in ratio
+  // order) rather than ever duplicating a word; memorized words are always
+  // excluded - they've graduated.
+  function selectQuestions(opts) {
     const o = opts || {};
     const pool = o.pool || [];
     const historyStore = o.historyStore || {};
     const random = o.random || Math.random;
     const now = typeof o.now === "number" ? o.now : Date.now();
+    const ratio = o.ratio || CONFIG.defaultQuestionRatio;
     const totalAvailable = pool.length;
-    let size = typeof o.size === "number" && o.size > 0 ? o.size : CONFIG.defaultTestSize;
+    let size = typeof o.size === "number" && o.size > 0 ? o.size : CONFIG.defaultQuestionSize;
     size = Math.min(size, totalAvailable);
     if (size <= 0) return [];
 
     const { unseen, incorrect, learning } = categorizeWords(pool, historyStore);
     const globalAvgMs = computeGlobalAverageResponseMs(historyStore);
-    const targets = computeTestTargets(size);
+    const targets = computeQuestionTargets(size, ratio);
+    const categoryWords = { new: unseen, incorrect: incorrect, learning: learning };
 
-    const buckets = [
-      { key: "new", ranked: rankCandidates(unseen, historyStore, random, "new", now, globalAvgMs), target: targets.new },
-      { key: "incorrect", ranked: rankCandidates(incorrect, historyStore, random, "incorrect", now, globalAvgMs), target: targets.incorrect },
-      { key: "learning", ranked: rankCandidates(learning, historyStore, random, "learning", now, globalAvgMs), target: targets.learning },
-    ];
+    const order = ["new", "incorrect", "learning"].filter((key) => (ratio[key] || 0) > 0);
+    if (!order.length) return [];
 
-    // Prefer filling shortfalls from "new" first (keeps the learner moving
-    // forward), then "incorrect", then "learning".
-    const deduped = fillBucketsWithFallback(buckets, size, ["new", "incorrect", "learning"]);
-    return shuffle(deduped, random);
-  }
+    const buckets = order.map((key) => ({
+      key: key,
+      ranked: rankCandidates(categoryWords[key], historyStore, random, key, now, globalAvgMs),
+      target: targets[key],
+    }));
 
-  /* ---------- Review Test: 70/30 question selection ---------- */
-
-  function computeReviewTargets(size) {
-    const ratio = CONFIG.reviewRatio;
-    const incorrectTarget = Math.round(size * ratio.incorrect);
-    const learningTarget = Math.max(0, size - incorrectTarget);
-    return { incorrect: incorrectTarget, learning: learningTarget };
-  }
-
-  // Builds the Review Test question list: 70% currently-incorrect, 30%
-  // currently-learning by default, sized by the caller (size=0 or omitted
-  // falls back to CONFIG.defaultReviewSize, capped to what's available;
-  // an explicit 0 or negative size means "all available"). Falls back
-  // between the two categories when one runs short. There is no separate
-  // "wrong list" to manage - a word's state (and so its membership here)
-  // updates live the instant it's answered, so getting it right in this
-  // very round already moves it out of "incorrect" for next time.
-  function buildReviewTestList(opts) {
-    const o = opts || {};
-    const pool = o.pool || [];
-    const historyStore = o.historyStore || {};
-    const random = o.random || Math.random;
-    const now = typeof o.now === "number" ? o.now : Date.now();
-
-    const { incorrect, learning } = categorizeWords(pool, historyStore);
-    const totalAvailable = incorrect.length + learning.length;
-    if (totalAvailable === 0) return [];
-
-    let size;
-    if (typeof o.size === "number" && o.size > 0) size = o.size;
-    else if (typeof o.size === "number") size = totalAvailable; // 0 or negative = all
-    else size = Math.min(CONFIG.defaultReviewSize, totalAvailable);
-    size = Math.min(size, totalAvailable);
-
-    const globalAvgMs = computeGlobalAverageResponseMs(historyStore);
-    const targets = computeReviewTargets(size);
-
-    const buckets = [
-      { key: "incorrect", ranked: rankCandidates(incorrect, historyStore, random, "incorrect", now, globalAvgMs), target: targets.incorrect },
-      { key: "learning", ranked: rankCandidates(learning, historyStore, random, "learning", now, globalAvgMs), target: targets.learning },
-    ];
-
-    const deduped = fillBucketsWithFallback(buckets, size, ["incorrect", "learning"]);
+    const deduped = fillBucketsWithFallback(buckets, size, order);
     return shuffle(deduped, random);
   }
 
@@ -640,10 +609,8 @@
     computeGlobalAverageResponseMs: computeGlobalAverageResponseMs,
     reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
-    computeTestTargets: computeTestTargets,
-    computeReviewTargets: computeReviewTargets,
-    selectTestQuestions: selectTestQuestions,
-    buildReviewTestList: buildReviewTestList,
+    computeQuestionTargets: computeQuestionTargets,
+    selectQuestions: selectQuestions,
     computeProgressSummary: computeProgressSummary,
     computeWordDetail: computeWordDetail,
   };
