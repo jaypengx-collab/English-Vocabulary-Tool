@@ -39,7 +39,7 @@ function saveJSON(key, value) {
 // a later version added - are upgraded in place without losing progress.
 let progressStore = loadJSON(PROGRESS_KEY, {});
 let settings = Object.assign(
-  { levels: [4, 5, 6], rate: 0.9, sessionSize: 80, reviewSize: 20 },
+  { levels: [4, 5, 6], rate: 0.9, volume: 1, sessionSize: 80, reviewSize: 20 },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -220,6 +220,7 @@ function speakWithWebSpeech(text) {
     utter.lang = "en-US";
   }
   utter.rate = settings.rate;
+  utter.volume = Math.min(1, settings.volume); // SpeechSynthesisUtterance.volume is clamped to [0, 1], unlike the GainNode boost above 100%
   window.speechSynthesis.speak(utter);
 }
 
@@ -285,7 +286,10 @@ function speak(word) {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
       source.playbackRate.value = settings.rate;
-      source.connect(ctx.destination);
+      const gain = ctx.createGain();
+      gain.gain.value = settings.volume;
+      source.connect(gain);
+      gain.connect(ctx.destination);
       currentSource = source;
       source.start(0);
     })
@@ -342,6 +346,12 @@ document.getElementById("mode-picker").addEventListener("change", (e) => {
 document.getElementById("rate-select").addEventListener("input", (e) => {
   settings.rate = Number(e.target.value);
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
+  saveSettings();
+});
+
+document.getElementById("volume-select").addEventListener("input", (e) => {
+  settings.volume = Number(e.target.value);
+  document.getElementById("volume-value").textContent = `${Math.round(settings.volume * 100)}%`;
   saveSettings();
 });
 
@@ -1144,6 +1154,8 @@ document.getElementById("import-progress-file").addEventListener("change", (e) =
       saveSettings();
       document.getElementById("rate-select").value = settings.rate;
       document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
+      document.getElementById("volume-select").value = settings.volume;
+      document.getElementById("volume-value").textContent = `${Math.round(settings.volume * 100)}%`;
       document.getElementById("session-size").value = String(settings.sessionSize);
       document.getElementById("review-size").value = String(settings.reviewSize);
     }
@@ -1245,6 +1257,8 @@ async function init() {
 
   document.getElementById("rate-select").value = settings.rate;
   document.getElementById("rate-value").textContent = `${settings.rate.toFixed(1)}x`;
+  document.getElementById("volume-select").value = settings.volume;
+  document.getElementById("volume-value").textContent = `${Math.round(settings.volume * 100)}%`;
   document.getElementById("session-size").value = String(settings.sessionSize);
   document.getElementById("review-size").value = String(settings.reviewSize);
 
