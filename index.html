@@ -76,36 +76,36 @@
         <button type="button" class="btn secondary small" data-minutes="20">20</button>
         <button type="button" class="btn secondary small" data-minutes="30">30</button>
       </div>
-      <p class="hint">拖曳滑桿或點選上方快速選項，決定要練習多久；時間到會自動結束並顯示成績，實際題數依你的作答速度而定，不用自己抓題數。</p>
+      <p class="hint">時間到會自動結束並顯示成績，不用自己抓題數。</p>
 
       <h2>測驗模式</h2>
-      <p class="hint">決定這回合怎麼挑「新字／答錯待複習／學習中」單字出題。已熟記（連續答對 2 次）的單字一律不會出現，把機會留給還沒學會的字。</p>
+      <p class="hint">選擇這回合怎麼出題。已熟記的單字不會出現。</p>
       <div class="mode-picker" id="mode-picker">
         <label class="mode-chip">
           <input type="radio" name="test-mode" value="auto" checked>
           <span>⚖️ 自動平衡（預設）</span>
-          <small>依目前答錯／學習中／新字的數量即時調整比例，回合中也會跟著調整。</small>
+          <small>依你目前的學習狀況自動調整。</small>
         </label>
         <label class="mode-chip">
           <input type="radio" name="test-mode" value="new">
           <span>🆕 新字優先</span>
-          <small>固定 80% 新字、10% 答錯待複習、10% 學習中。</small>
+          <small>大部分出新字，少量複習。</small>
         </label>
         <label class="mode-chip">
           <input type="radio" name="test-mode" value="review">
           <span>🔁 只複習</span>
-          <small>固定 70% 答錯待複習、30% 學習中，不出新字。</small>
+          <small>只複習舊字，不出新字。</small>
         </label>
         <label class="mode-chip">
           <input type="radio" name="test-mode" value="advanced">
           <span>🛠️ 進階：自訂比例</span>
-          <small>自己拖曳滑桿決定比例。</small>
+          <small>自己設定出題比例。</small>
         </label>
       </div>
       <p class="hint" id="auto-ratio-hint"></p>
 
       <div id="ratio-advanced-panel" class="hidden">
-        <p class="hint">拖曳調整這回合「新字／答錯待複習／學習中」單字各佔多少比例，三者總和固定為 100%，拖一個滑桿時另外兩個會自動增減；若某類單字數量不足，系統會自動用其他非 0% 的類別補足，但 0% 的類別永遠不會出現。</p>
+        <p class="hint">拖曳滑桿調整新字、答錯待複習、學習中各佔的比例。</p>
         <div class="row">
           <label for="ratio-new">🆕 新字</label>
           <input type="range" class="ratio-slider" id="ratio-new" min="0" max="100" step="1" value="80" />
@@ -140,7 +140,7 @@
 
       <div id="test-empty" class="summary hidden">
         <h2>沒有符合條件的單字</h2>
-        <p class="hint">目前選擇的等級範圍＋測驗模式下沒有可以出題的單字，試試看切換「測驗模式」（例如「只複習」但目前沒有待複習的單字時，改選「新字優先」或「自動平衡」），或回首頁勾選其他等級。</p>
+        <p class="hint">目前沒有符合的單字可以出題，試試切換測驗模式，或回首頁勾選其他等級。</p>
         <div class="row actions">
           <button class="btn secondary" id="test-empty-home-btn">回首頁</button>
         </div>
@@ -193,14 +193,14 @@
 
     <div class="card">
       <h2>答錯待複習 <span class="muted">（<span id="reviewlist-incorrect-count">0</span>）</span></h2>
-      <p class="hint">列出答錯之後正確拼法與你實際打的內容，方便找出自己容易錯在哪裡。</p>
+      <p class="hint">顯示正確拼法與你打錯的地方。</p>
       <div class="row">
         <label for="reviewlist-incorrect-sort">排序</label>
         <select id="reviewlist-incorrect-sort">
-          <option value="tries" selected>嘗試次數（多到少，最容易錯優先）</option>
+          <option value="tries" selected>嘗試次數（多到少）</option>
           <option value="recent">最近錯誤（新到舊）</option>
           <option value="oldest">最近錯誤（舊到新）</option>
-          <option value="slow">反應時間（同長度單字，慢到快）</option>
+          <option value="slow">反應時間（慢到快）</option>
           <option value="az">字母順序 A→Z</option>
         </select>
       </div>
@@ -213,7 +213,7 @@
       <div class="row">
         <label for="reviewlist-learning-sort">排序</label>
         <select id="reviewlist-learning-sort">
-          <option value="slow" selected>反應時間（同長度單字，慢到快，最需要加強優先）</option>
+          <option value="slow" selected>反應時間（慢到快）</option>
           <option value="tries">嘗試次數（多到少）</option>
           <option value="streak">連續正確次數（少到多）</option>
           <option value="recent">最近練習（新到舊）</option>
@@ -237,7 +237,7 @@
       <div id="progress-levels"></div>
 
       <h2>🔄 跨裝置同步</h2>
-      <p class="hint">把學習紀錄自動同步到你自己的其他裝置（手機、電腦、平板都可以），不用每次手動匯出匯入。第一次先在任一裝置按「建立新同步」，再到其他裝置輸入同一組代碼與密碼「加入同步」即可。</p>
+      <p class="hint">把學習紀錄同步到你的其他裝置。先按「建立新同步」，再到其他裝置輸入代碼與密碼「加入同步」。</p>
 
       <div id="sync-setup-box">
         <div class="row actions">
@@ -284,7 +284,7 @@
       <p class="hint" id="sync-status"></p>
 
       <h2>備份與還原（手動）</h2>
-      <p class="hint">除了上面的跨裝置同步，也可以隨時手動匯出一份備份檔保存起來，或用來搬到還沒設定同步的裝置。</p>
+      <p class="hint">也可以手動匯出備份檔，或匯入到其他裝置。</p>
       <div class="row actions">
         <button class="btn secondary" id="export-progress-btn">📤 匯出學習紀錄</button>
         <button class="btn secondary" id="import-progress-btn">📥 匯入學習紀錄</button>

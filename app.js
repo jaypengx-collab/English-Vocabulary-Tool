@@ -126,7 +126,7 @@ function updateAutoRatioHint() {
   const pool = wordsForLevels(levels.length ? levels : [4, 5, 6]);
   const ratio = Logic.computeAutoBalanceRatioForPool(pool, progressStore);
   hintEl.textContent =
-    `目前自動配比：新字 ${Math.round(ratio.new * 100)}%・答錯待複習 ${Math.round(ratio.incorrect * 100)}%・學習中 ${Math.round(ratio.learning * 100)}%（測驗過程中會即時調整）`;
+    `目前配比：新字 ${Math.round(ratio.new * 100)}%・答錯 ${Math.round(ratio.incorrect * 100)}%・學習中 ${Math.round(ratio.learning * 100)}%`;
 }
 
 document.getElementById("mode-picker").addEventListener("change", (e) => {
@@ -1434,14 +1434,13 @@ function renderProgress() {
     <div class="stat-box"><span class="num">${formatMs(summary.globalAverageResponseMs)}</span><span class="label">平均反應時間</span></div>
   `;
 
-  let trendText = "尚無足夠的作答紀錄可分析反應時間趨勢。";
+  let trendText = "還沒有足夠的紀錄可以分析。";
   if (summary.recentAccuracy != null) {
-    if (summary.responseTimeTrend > 0.05) trendText = "近期反應時間有變快的趨勢，代表越來越熟練。";
-    else if (summary.responseTimeTrend < -0.05) trendText = "近期反應時間有變慢的趨勢，可能需要多複習。";
-    else trendText = "近期反應時間大致穩定。";
+    if (summary.responseTimeTrend > 0.05) trendText = "最近反應變快了，越來越熟練！";
+    else if (summary.responseTimeTrend < -0.05) trendText = "最近反應變慢了，可能需要多複習。";
+    else trendText = "最近反應時間大致穩定。";
   }
-  document.getElementById("progress-trend-hint").textContent =
-    `${trendText} 「答錯待複習」與「學習中」的單字裡，測驗會優先挑選比同長度單字預期速度慢的加強練習（長單字本來就需要多打幾個字母，不會只因為比較長就被當成不熟）。`;
+  document.getElementById("progress-trend-hint").textContent = trendText;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {
@@ -1542,7 +1541,7 @@ function renderWordTable() {
     .join("");
 
   container.innerHTML = `
-    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。測驗會依你在「同樣長度單字」中的反應時間，優先挑選比較慢、比較久沒複習的單字（不會只因為單字比較長就被當成比較慢）。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
+    <p class="hint">連續答對 2 次算「已熟記」，答錯一次會重新歸零。滑鼠移到「最近錯誤」可看更多紀錄。</p>
     <div class="word-table-wrap">
       <table class="word-table">
         <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="連續答對次數">連續正確</th><th>平均反應時間</th><th>最近錯誤</th><th>狀態</th></tr></thead>
