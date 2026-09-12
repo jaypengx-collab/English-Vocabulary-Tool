@@ -109,6 +109,25 @@
     // more urgently than learning words per-word (still-wrong beats
     // almost-there) when splitting the share between the two categories.
     autoBalanceIncorrectWeight: 1.5,
+
+    // ---- Predicting difficulty of never-attempted words (see
+    // rankNewWordsByPredictedDifficulty) ----
+    // Below this many total past mistakes (across every word ever gotten
+    // wrong), computeLetterTroubleRates returns null instead of a fitted
+    // per-letter model - a handful of typos isn't enough to tell a genuine
+    // personal pattern (e.g. "I keep dropping doubled letters") from
+    // ordinary noise, and a model built on too little data would rank new
+    // words on essentially arbitrary grounds while looking authoritative.
+    minMistakesForLetterTroubleModel: 15,
+    // How much of a new word's predicted difficulty comes from its
+    // length/level-based baseline error rate vs. its personalized
+    // letter-trouble score, once there's enough mistake history to compute
+    // the latter at all (see predictWordDifficulty). The baseline is
+    // trusted more: it is built from many more data points (every attempt
+    // on every word) than any one word's handful of constituent letters
+    // can be individually.
+    difficultyLengthWeight: 0.6,
+    difficultyLetterWeight: 0.4,
   };
 
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -530,6 +549,114 @@
     return weight * recencyFactor;
   }
 
+  /* ---------- Predicting difficulty of never-attempted ("new") words ----------
+     Two independent signals, blended into one predicted "chance you'll get
+     this particular never-tried word wrong": a length/level-driven
+     baseline (reliable from day one, but generic - "long words are
+     harder" applies to everyone) and a personalized per-letter "trouble"
+     signal mined from this specific learner's own past mistakes (which
+     letters THEY tend to drop or swap, not people in general). Neither
+     claims to be a real model of English orthography - both are cheap,
+     defensible proxies built entirely from data already in progressStore,
+     nothing external. */
+
+  // Length-driven "expected error rate" - same regression technique as
+  // computeResponseTimeBaseline, but fitting (length -> incorrect/attempts)
+  // instead of (length -> response time). Returns null with no attempted
+  // words at all; falls back to one flat average error rate below
+  // CONFIG.minSamplesForLengthTrend samples, same reasoning as that
+  // function's own fallback.
+  function computeErrorRateBaseline(historyStore) {
+    const store = historyStore || {};
+    const points = [];
+    for (const key of Object.keys(store)) {
+      const h = store[key];
+      if (h && h.attempts > 0 && typeof h.length === "number" && h.length > 0) {
+        points.push({ x: h.length, y: (h.incorrect || 0) / h.attempts });
+      }
+    }
+    if (!points.length) return null;
+    const overallAvg = clamp(average(points.map((p) => p.y)), 0, 1);
+    if (points.length < CONFIG.minSamplesForLengthTrend) {
+      return { predict: () => overallAvg };
+    }
+    const fit = linearRegression(points);
+    if (!fit) return { predict: () => overallAvg };
+    return { predict: (length) => clamp(fit.intercept + fit.slope * (length || 0), 0, 1) };
+  }
+
+  // Per-letter (a-z) "trouble rate": how often a letter turned up as one of
+  // the MISSED letters (see diffChars) across every incorrect attempt this
+  // user has ever made, relative to how often that letter appears at all
+  // in the correct spelling of every word they've attempted - normalizing
+  // by how common the letter is in the first place, so an ordinary letter
+  // like "e" needs a genuinely high miss rate (not just a high raw count)
+  // to register. Returns null below
+  // CONFIG.minMistakesForLetterTroubleModel total mistakes - too little
+  // data yet to tell a real personal pattern from noise.
+  function computeLetterTroubleRates(historyStore) {
+    const store = historyStore || {};
+    const missedCounts = {};
+    const totalCounts = {};
+    let totalMistakes = 0;
+
+    for (const key of Object.keys(store)) {
+      const h = store[key];
+      if (!h || !h.word || !h.attempts) continue;
+      for (const ch of h.word.toLowerCase()) {
+        if (ch >= "a" && ch <= "z") totalCounts[ch] = (totalCounts[ch] || 0) + 1;
+      }
+      for (const a of h.recentAttempts || []) {
+        if (a.correct || !a.answer) continue;
+        totalMistakes += 1;
+        const ops = diffChars(a.answer, h.word);
+        for (const op of ops) {
+          if (op.match) continue;
+          const ch = op.char.toLowerCase();
+          if (ch >= "a" && ch <= "z") missedCounts[ch] = (missedCounts[ch] || 0) + 1;
+        }
+      }
+    }
+
+    if (totalMistakes < CONFIG.minMistakesForLetterTroubleModel) return null;
+
+    const rates = {};
+    for (const ch of Object.keys(totalCounts)) {
+      rates[ch] = totalCounts[ch] > 0 ? (missedCounts[ch] || 0) / totalCounts[ch] : 0;
+    }
+    return rates;
+  }
+
+  // One 0..1-ish predicted difficulty for a single never-yet-attempted
+  // word: the length baseline alone when there's no letter-trouble model
+  // yet (or the word has no a-z letters at all), otherwise a weighted
+  // blend of both signals (see CONFIG.difficultyLengthWeight/
+  // difficultyLetterWeight).
+  function predictWordDifficulty(word, errorRateBaseline, letterTroubleRates) {
+    const w = (word || "").toLowerCase();
+    const lengthRisk = errorRateBaseline ? errorRateBaseline.predict(w.length) : 0.15;
+    if (!letterTroubleRates) return lengthRisk;
+    const letters = w.split("").filter((ch) => ch >= "a" && ch <= "z");
+    if (!letters.length) return lengthRisk;
+    const letterRisk = letters.reduce((acc, ch) => acc + (letterTroubleRates[ch] || 0), 0) / letters.length;
+    return clamp(lengthRisk * CONFIG.difficultyLengthWeight + letterRisk * CONFIG.difficultyLetterWeight, 0, 1);
+  }
+
+  // Orders never-attempted words so ones predicted MORE likely to trip
+  // this user up surface more often - a weighted random draw (same
+  // Efraimidis-Spirakis scheme as weightedShuffle/reviewPriorityWeight),
+  // never a rigid sort: a predicted-easy word still has some chance of
+  // coming up early, a predicted-hard one is never guaranteed the same
+  // slot every round. Falls back to a plain shuffle when there's no
+  // attempted-word data at all yet to predict from.
+  function rankNewWordsByPredictedDifficulty(words, historyStore, random) {
+    const errorRateBaseline = computeErrorRateBaseline(historyStore);
+    const letterTroubleRates = computeLetterTroubleRates(historyStore);
+    if (!errorRateBaseline && !letterTroubleRates) return shuffle(words, random);
+    const weights = words.map((w) => 0.5 + predictWordDifficulty(w.word, errorRateBaseline, letterTroubleRates) * 2);
+    return weightedShuffle(words, weights, random);
+  }
+
   /* ---------- Word categorization ---------- */
 
   function categorizeWords(pool, historyStore) {
@@ -579,13 +706,17 @@
     return withTimestamp.slice(0, Math.max(0, size)).map((x) => x.w);
   }
 
-  // Orders candidates for a bucket. "new" words have no history to rank
-  // by, so a plain shuffle is enough. "incorrect"/"learning" words are
-  // ordered by a WEIGHTED random draw (see reviewPriorityWeight) rather
-  // than a deterministic sort, so slower/staler words are picked far more
-  // often but not guaranteed the exact same word every round.
+  // Orders candidates for a bucket. "new" words have no history of their
+  // own to rank by directly, but are still weighted by PREDICTED
+  // difficulty (see rankNewWordsByPredictedDifficulty) so words this
+  // learner seems more likely to get wrong surface more often instead of
+  // a flat shuffle treating every never-tried word as equally likely to
+  // trip them up. "incorrect"/"learning" words are ordered by a WEIGHTED
+  // random draw (see reviewPriorityWeight) rather than a deterministic
+  // sort, so slower/staler words are picked far more often but not
+  // guaranteed the exact same word every round.
   function rankCandidates(words, historyStore, random, category, now, baseline) {
-    if (category === "new") return shuffle(words, random);
+    if (category === "new") return rankNewWordsByPredictedDifficulty(words, historyStore, random);
     const withMeta = words.map((w) => {
       const h = historyFor(historyStore, w.word) || {};
       return { w: w, weight: reviewPriorityWeight(h, baseline, now) };
@@ -857,6 +988,10 @@
     computeResponseTimeBaseline: computeResponseTimeBaseline,
     relativeResponseTime: relativeResponseTime,
     reviewPriorityWeight: reviewPriorityWeight,
+    computeErrorRateBaseline: computeErrorRateBaseline,
+    computeLetterTroubleRates: computeLetterTroubleRates,
+    predictWordDifficulty: predictWordDifficulty,
+    rankNewWordsByPredictedDifficulty: rankNewWordsByPredictedDifficulty,
     categorizeWords: categorizeWords,
     filterMarked: filterMarked,
     selectReviewBatch: selectReviewBatch,

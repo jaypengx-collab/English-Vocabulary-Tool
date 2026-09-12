@@ -1226,8 +1226,9 @@ document.getElementById("test-exit-btn").addEventListener("click", async () => {
 const REVIEWLIST_PAGE_SIZE = 20;
 // How many words 卡片瀏覽 loads at a time (see currentReviewBatchItems) -
 // small enough to comfortably finish in one sitting even with a backlog of
-// hundreds of words, large enough to clear MIN_REVIEW_DECK_TEST_WORDS with
-// room to spare for a meaningful "測驗這些單字" round.
+// hundreds of words, large enough that finishing one (see
+// reviewDeckTestRequirement - "測驗這些單字" unlocks only once the WHOLE
+// batch has been seen) still makes for a meaningful test round.
 const REVIEW_BATCH_SIZE = 20;
 let reviewListCategory = "incorrect"; // "incorrect" | "learning" | "marked"
 let reviewListViewMode = "list"; // "list" | "cards"
@@ -1524,6 +1525,15 @@ function renderFlashcard() {
   revealEl.innerHTML = buildFlashcardRevealHtml(detail, sectionShowWrong === null ? detail.state === "incorrect" : sectionShowWrong);
   document.getElementById("flashcard-tap-hint").textContent = "點卡片可暫時隱藏意思";
 
+  // Counts toward "測驗這些單字"'s "seen the whole batch" gate the moment
+  // a card is DISPLAYED (see reviewDeckTestRequirement) - distinct from
+  // markCurrentCardReviewed's persisted lastReviewedAt, which only updates
+  // once you navigate PAST a card (see that function's own comment). Doing
+  // it here rather than there means the button can become ready the moment
+  // you reach the last card, without requiring one more "next" click past
+  // it - clicking next from the last card loads a whole new batch instead.
+  reviewListViewedWords.add(detail.word.toLowerCase());
+
   document.getElementById("flashcard-prev-btn").disabled = reviewListCardIndex <= 0;
   // Never disabled at the end of a batch - the button instead offers a
   // fresh batch (see the click handler below), so a big backlog is never a
@@ -1553,11 +1563,10 @@ function markCurrentCardReviewed() {
   const items = reviewListCardDeck;
   if (!items.length) return;
   const { detail } = items[reviewListCardIndex];
-  // Both for startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS (this
-  // session's deck) and, persisted onto the word's own history, for
-  // selectReviewBatch to stop resurfacing it for a while (see
-  // currentReviewBatchItems).
-  reviewListViewedWords.add(detail.word.toLowerCase());
+  // Persisted onto the word's own history so selectReviewBatch stops
+  // resurfacing it for a while (see currentReviewBatchItems) - the
+  // in-session "測驗這些單字" gate (reviewListViewedWords) is tracked
+  // separately, at display time, in renderFlashcard.
   const history = progressStore[detail.word.toLowerCase()];
   if (history) {
     Logic.markReviewed(history, Date.now());
@@ -1652,17 +1661,13 @@ function toggleWordMark(word) {
 // can never leak into a new one.
 let reviewListViewedWords = new Set();
 
-// Below this many VIEWED words, a test is answering straight out of
-// short-term/working memory (you just read it two seconds ago) rather than
-// real recall - clamped to the batch's own size so a genuinely small
-// category (e.g. only 3 incorrect words total) still becomes testable once
-// all 3 are viewed, instead of an unreachable fixed floor. Once past this
-// gate, the test still covers the ENTIRE batch, not just the words that
-// individually crossed this count.
-const MIN_REVIEW_DECK_TEST_WORDS = 5;
-
+// "測驗這些單字" only becomes available once EVERY card in the current
+// batch has been viewed at least once - not some smaller minimum. The
+// batch is a deliberately bounded, single reviewable unit (see
+// REVIEW_BATCH_SIZE); testing before finishing it would mean testing on
+// words you haven't actually gotten to yet this round.
 function reviewDeckTestRequirement() {
-  return Math.min(MIN_REVIEW_DECK_TEST_WORDS, reviewListCardDeck.length);
+  return reviewListCardDeck.length;
 }
 
 function reviewedDeckCount() {
@@ -1681,13 +1686,12 @@ function updateFlashcardTestButtonState() {
     hintEl.textContent = "";
     return;
   }
-  const required = reviewDeckTestRequirement();
   const reviewedCount = reviewedDeckCount();
-  const ready = reviewedCount >= required;
+  const ready = reviewedCount >= total;
   btn.disabled = !ready;
   hintEl.textContent = ready
-    ? `已看過這批 ${reviewedCount} / ${total} 個，可以測驗整批 ${total} 個單字。`
-    : `再看 ${required - reviewedCount} 個單字就能測驗這一批（共 ${total} 個，至少需先看過 ${required} 個，避免只靠剛看過的短期記憶作答）。`;
+    ? `已看完這批 ${total} 個單字，可以開始測驗！`
+    : `已看過 ${reviewedCount} / ${total} 個，看完這一批全部單字就能開始測驗。`;
 }
 
 // Starts a REAL quiz round (reusing the exact same vocabTest engine as the
@@ -1697,7 +1701,7 @@ function updateFlashcardTestButtonState() {
 // bounded, single reviewable unit, so the test is scoped to match it
 // exactly rather than some smaller ad-hoc subset of "whichever cards you
 // happened to tap through". reviewedDeckCount only gates WHETHER you can
-// test yet (see MIN_REVIEW_DECK_TEST_WORDS), never which words are in it.
+// test yet (see reviewDeckTestRequirement), never which words are in it.
 // Answers record completely normally: this is not a separate "practice"
 // mode, it's the same dictation quiz with a hand-picked word list instead
 // of a ratio-driven one. Never time-boxed (see testTimeUp's own customDeck
