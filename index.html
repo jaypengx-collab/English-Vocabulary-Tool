@@ -182,47 +182,59 @@
     </div>
   </section>
 
-  <!-- REVIEW LIST (browsable Learning / Incorrect words, not a quiz) -->
+  <!-- REVIEW LIST (browsable Learning / Incorrect words, with a list view
+       and a flashcard-style swipe view - see app.js's Review List section) -->
   <section id="view-reviewlist" class="view">
     <div class="card">
       <h2>複習</h2>
+      <div class="row segmented" id="reviewlist-category-tabs">
+        <button type="button" class="segmented-btn active" data-category="incorrect">❌ 答錯待複習 <span id="reviewlist-incorrect-count">0</span></button>
+        <button type="button" class="segmented-btn" data-category="learning">📖 學習中 <span id="reviewlist-learning-count">0</span></button>
+      </div>
       <div class="row">
-        <input type="text" id="reviewlist-search" placeholder="搜尋單字（同時篩選下面兩個清單）..." />
+        <input type="text" id="reviewlist-search" placeholder="搜尋單字..." />
+      </div>
+      <div class="row segmented" id="reviewlist-view-tabs">
+        <button type="button" class="segmented-btn active" data-mode="list">📋 列表</button>
+        <button type="button" class="segmented-btn" data-mode="cards">🎴 卡片瀏覽</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>答錯待複習 <span class="muted">（<span id="reviewlist-incorrect-count">0</span>）</span></h2>
-      <p class="hint">顯示正確拼法與你打錯的地方。</p>
+    <!-- LIST VIEW -->
+    <div class="card" id="reviewlist-list-panel">
+      <p class="hint" id="reviewlist-list-hint"></p>
       <div class="row">
-        <label for="reviewlist-incorrect-sort">排序</label>
-        <select id="reviewlist-incorrect-sort">
-          <option value="tries" selected>嘗試次數（多到少）</option>
-          <option value="recent">最近錯誤（新到舊）</option>
-          <option value="oldest">最近錯誤（舊到新）</option>
-          <option value="slow">反應時間（慢到快）</option>
-          <option value="az">字母順序 A→Z</option>
-        </select>
+        <label for="reviewlist-sort">排序</label>
+        <select id="reviewlist-sort"></select>
       </div>
-      <div id="reviewlist-incorrect"></div>
-      <div id="reviewlist-incorrect-pager"></div>
+      <div id="reviewlist-items"></div>
+      <div id="reviewlist-pager"></div>
     </div>
 
-    <div class="card">
-      <h2>學習中的單字 <span class="muted">（<span id="reviewlist-learning-count">0</span>）</span></h2>
-      <div class="row">
-        <label for="reviewlist-learning-sort">排序</label>
-        <select id="reviewlist-learning-sort">
-          <option value="slow" selected>反應時間（慢到快）</option>
-          <option value="tries">嘗試次數（多到少）</option>
-          <option value="streak">連續正確次數（少到多）</option>
-          <option value="recent">最近練習（新到舊）</option>
-          <option value="oldest">最近練習（舊到新）</option>
-          <option value="az">字母順序 A→Z</option>
-        </select>
+    <!-- CARD VIEW: one big word at a time, tap to flip, swipe (or ‹ › ) to
+         move through the deck, then an optional test on just these words. -->
+    <div class="card hidden" id="reviewlist-card-panel">
+      <p class="hint" id="reviewlist-card-empty"></p>
+      <div id="reviewlist-card-body" class="hidden">
+        <p class="hint" id="flashcard-progress"></p>
+        <div class="flashcard-stage">
+          <div class="flashcard" id="flashcard">
+            <div class="flashcard-level" id="flashcard-level"></div>
+            <button type="button" class="card-play-btn flashcard-play-btn" id="flashcard-play-btn" title="播放發音">🔊</button>
+            <div class="flashcard-word" id="flashcard-word"></div>
+            <div class="flashcard-pos muted" id="flashcard-pos"></div>
+            <div class="flashcard-reveal hidden" id="flashcard-reveal"></div>
+            <p class="hint flashcard-tap-hint" id="flashcard-tap-hint">點卡片看意思</p>
+          </div>
+        </div>
+        <div class="row actions flashcard-nav">
+          <button type="button" class="btn secondary" id="flashcard-prev-btn">‹ 上一個</button>
+          <button type="button" class="btn secondary" id="flashcard-next-btn">下一個 ›</button>
+        </div>
+        <div class="row actions">
+          <button type="button" class="btn primary" id="flashcard-test-btn">📝 測驗這些單字</button>
+        </div>
       </div>
-      <div id="reviewlist-learning"></div>
-      <div id="reviewlist-learning-pager"></div>
     </div>
   </section>
 

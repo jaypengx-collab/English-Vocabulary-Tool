@@ -640,6 +640,131 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 
 @media (max-width: 480px) {
   .play-btn { width: 76px; height: 76px; font-size: 1.7rem; }
+  .flashcard-word { font-size: 1.6rem; }
+}
+
+/* ---------- Review tab: category / view-mode segmented tabs ---------- */
+
+.segmented {
+  display: flex;
+  gap: 8px;
+}
+
+.segmented-btn {
+  flex: 1;
+  background: var(--secondary);
+  color: var(--secondary-text);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 10px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segmented-btn.active {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+/* ---------- Review tab: flashcard swipe view ---------- */
+
+.flashcard-stage {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 16px 0;
+  /* Keeps a card being dragged off-screen (see app.js's swipe handling)
+     from visually spilling past this card's own rounded corners. */
+  overflow: hidden;
+}
+
+.flashcard {
+  width: 100%;
+  max-width: 360px;
+  min-height: 260px;
+  background: var(--secondary);
+  border-radius: 16px;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-y;
+  position: relative;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+/* Disabled while a finger/pointer is actively dragging the card (see
+   app.js's flashcard swipe handling) so it tracks the pointer 1:1 instead
+   of lagging behind the transition; re-enabled the instant the drag ends,
+   for the snap-back or swipe-away animation. */
+.flashcard.dragging {
+  transition: none;
+}
+
+.flashcard-level {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.flashcard-play-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+  box-shadow: var(--shadow);
+}
+
+.flashcard-word {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  word-break: break-word;
+}
+
+.flashcard-pos {
+  font-size: 0.9rem;
+}
+
+.flashcard-reveal {
+  margin-top: 6px;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.flashcard-reveal .word-card-wrong {
+  margin-top: 10px;
+  font-size: 0.9rem;
+}
+
+.flashcard-tap-hint {
+  margin: 2px 0 0 0;
+  font-size: 0.75rem;
+}
+
+.flashcard-nav {
+  margin-top: 4px;
+  display: flex;
+  gap: 10px;
+}
+
+.flashcard-nav .btn {
+  flex: 1;
 }
 
 /* ---------- Cross-device sync panel ---------- */

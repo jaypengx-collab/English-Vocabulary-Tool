@@ -868,6 +868,14 @@ const vocabTest = {
   startedAt: 0,
   timeLimitMs: 0,
   inProgress: false,
+  // true only for a round started from 複習's "測驗這些單字" (see
+  // startReviewDeckTest) - a fixed, user-chosen word set, not the
+  // ratio-driven pool the home screen's modes build from. Answers still
+  // record normally (recordResult doesn't check this at all - reviewing a
+  // word here is exactly as real as reviewing it anywhere else), this only
+  // suppresses auto mode's mid-round rebalancing (see rebalanceAutoModeTail),
+  // which has no ratio/pool of its own to rebalance against here.
+  customDeck: false,
 };
 
 // Fetches (and caches - see loadAudioBuffer) the audio for whatever word
@@ -892,7 +900,7 @@ function preloadNextAudio() {
 // completely alone - only what comes after is subject to change - so
 // results already shown/recorded are never altered, only what's asked next.
 function rebalanceAutoModeTail() {
-  if (settings.mode !== "auto" || !vocabTest.inProgress) return;
+  if (settings.mode !== "auto" || !vocabTest.inProgress || vocabTest.customDeck) return;
   const pool = vocabTest.pool;
   if (!pool || !pool.length) return;
   const presented = new Set(vocabTest.list.slice(0, vocabTest.index + 1).map((w) => w.word.toLowerCase()));
@@ -974,6 +982,7 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   getAudioContext();
   const pool = wordsForLevels(levels);
   vocabTest.pool = pool; // kept for live re-rebalancing mid-round in auto mode (see rebalanceAutoModeTail)
+  vocabTest.customDeck = false;
   const ratio = currentModeRatioFraction(pool);
   // The round is time-boxed (settings.testMinutes), not question-counted -
   // request the WHOLE available pool up front so the list never runs out
@@ -1180,14 +1189,49 @@ document.getElementById("test-exit-btn").addEventListener("click", async () => {
   finishTest();
 });
 
-/* ---------- Review List (browsable Learning / Incorrect words) ---------- */
+/* ---------- Review List (browsable Learning / Incorrect words) ----------
+   Two orthogonal choices, each its own row of tabs: WHICH category
+   (答錯待複習 / 學習中 - never both at once, so a word only ever needs
+   attention in one place at a time) and HOW to browse it (列表, the
+   original searchable/sortable/paginated word-card list, still there for
+   anyone who wants to scan or search; or 卡片瀏覽, one big flashcard at a
+   time - tap to flip, swipe or ‹ › through the deck, then an optional
+   "測驗這些單字" button that starts a REAL quiz round scoped to exactly
+   this deck. Answers there record completely normally (see
+   startReviewDeckTest) - reviewing a word here is exactly as real as
+   reviewing it anywhere else in the app, so a streak built here genuinely
+   moves a word toward Memorized. */
 
 const REVIEWLIST_PAGE_SIZE = 20;
+let reviewListCategory = "incorrect"; // "incorrect" | "learning"
+let reviewListViewMode = "list"; // "list" | "cards"
 let reviewListSearch = "";
-let reviewListIncorrectSort = "tries";
-let reviewListLearningSort = "slow";
-let reviewListIncorrectPage = 0;
-let reviewListLearningPage = 0;
+let reviewListSort = { incorrect: "tries", learning: "slow" };
+let reviewListPage = 0;
+let reviewListCardIndex = 0;
+// The exact ordered item list ({detail, lastSeen}[]) the flashcard view is
+// currently showing - snapshotted by renderReviewListCardView so prev/next
+// navigation and "測驗這些單字" both work off one stable list rather than
+// each recomputing (and potentially disagreeing on order/content).
+let reviewListCardDeck = [];
+
+const REVIEWLIST_SORT_OPTIONS = {
+  incorrect: [
+    { value: "tries", label: "嘗試次數（多到少）" },
+    { value: "recent", label: "最近錯誤（新到舊）" },
+    { value: "oldest", label: "最近錯誤（舊到新）" },
+    { value: "slow", label: "反應時間（慢到快）" },
+    { value: "az", label: "字母順序 A→Z" },
+  ],
+  learning: [
+    { value: "slow", label: "反應時間（慢到快）" },
+    { value: "tries", label: "嘗試次數（多到少）" },
+    { value: "streak", label: "連續正確次數（少到多）" },
+    { value: "recent", label: "最近練習（新到舊）" },
+    { value: "oldest", label: "最近練習（舊到新）" },
+    { value: "az", label: "字母順序 A→Z" },
+  ],
+};
 
 // Shared by both the Incorrect and Learning lists - not every mode is
 // offered in both dropdowns, but the comparators are the same either way.
@@ -1245,29 +1289,6 @@ function buildWordCard(detail, showWrongInfo) {
     </div>`;
 }
 
-// With hundreds of words in a category, a flat unpaginated card list is
-// unusable - this pages results (REVIEWLIST_PAGE_SIZE per page) and
-// returns the (possibly clamped, e.g. after a search shrinks the result
-// count) page number so the caller can keep its page-state variable in
-// sync.
-function renderReviewCategory(containerId, pagerContainerId, items, page, section, showWrongInfo, emptyText) {
-  const container = document.getElementById(containerId);
-  const pagerContainer = document.getElementById(pagerContainerId);
-  if (!items.length) {
-    container.innerHTML = `<p class="hint">${emptyText}</p>`;
-    pagerContainer.innerHTML = "";
-    return 0;
-  }
-  const totalPages = Math.max(1, Math.ceil(items.length / REVIEWLIST_PAGE_SIZE));
-  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
-  const start = clampedPage * REVIEWLIST_PAGE_SIZE;
-  const shown = items.slice(start, start + REVIEWLIST_PAGE_SIZE);
-  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, showWrongInfo)).join("");
-  container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>`;
-  pagerContainer.innerHTML = buildPagerHtml(section, clampedPage, totalPages, items.length);
-  return clampedPage;
-}
-
 function buildPagerHtml(section, page, totalPages, totalCount) {
   if (totalPages <= 1) return "";
   return `
@@ -1283,59 +1304,302 @@ function reviewListPool() {
   return wordsForLevels(levels.length ? levels : [4, 5, 6]);
 }
 
-function renderReviewList() {
+// The current category's items, filtered by search and sorted by the
+// current category's own sort choice - the ONE list both the list view and
+// the card view build off, so switching between them (or taking a custom
+// test) never shows a different word set than what's on screen.
+function currentReviewListItems() {
   const pool = reviewListPool();
   const cats = Logic.categorizeWords(pool, progressStore);
   const search = reviewListSearch.trim().toLowerCase();
-  // Computed once per render (not per word - see computeWordDetail's own
+  // Computed once per call (not per word - see computeWordDetail's own
   // comment) so every word's "反應時間" sort position compares it against
   // the expected time for ITS OWN length, not one flat average dominated
   // by whatever length is most common - see relativeResponseTime.
   const responseTimeBaseline = Logic.computeResponseTimeBaseline(progressStore);
-
-  const toItems = (words) => words
+  const words = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
+  const items = words
     .filter((w) => !search || w.word.toLowerCase().includes(search))
     .map((w) => ({
       detail: Logic.computeWordDetail(w, progressStore, responseTimeBaseline),
       lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
     }));
-
-  const incorrectItems = sortReviewListItems(toItems(cats.incorrect), reviewListIncorrectSort);
-  reviewListIncorrectPage = renderReviewCategory(
-    "reviewlist-incorrect", "reviewlist-incorrect-pager", incorrectItems, reviewListIncorrectPage, "incorrect", true,
-    search ? "沒有符合搜尋的答錯單字。" : "目前沒有答錯待複習的單字，太厲害了！"
-  );
-  document.getElementById("reviewlist-incorrect-count").textContent = incorrectItems.length;
-
-  const learningItems = sortReviewListItems(toItems(cats.learning), reviewListLearningSort);
-  reviewListLearningPage = renderReviewCategory(
-    "reviewlist-learning", "reviewlist-learning-pager", learningItems, reviewListLearningPage, "learning", false,
-    search ? "沒有符合搜尋的學習中單字。" : "目前沒有學習中的單字，去做幾回合單字測驗吧！"
-  );
-  document.getElementById("reviewlist-learning-count").textContent = learningItems.length;
+  return sortReviewListItems(items, reviewListSort[reviewListCategory]);
 }
+
+function reviewListEmptyText() {
+  if (reviewListSearch.trim()) return "沒有符合搜尋的單字。";
+  return reviewListCategory === "incorrect"
+    ? "目前沒有答錯待複習的單字，太厲害了！"
+    : "目前沒有學習中的單字，去做幾回合單字測驗吧！";
+}
+
+function populateReviewSortOptions() {
+  const select = document.getElementById("reviewlist-sort");
+  const current = reviewListSort[reviewListCategory];
+  select.innerHTML = REVIEWLIST_SORT_OPTIONS[reviewListCategory]
+    .map((o) => `<option value="${o.value}"${o.value === current ? " selected" : ""}>${o.label}</option>`)
+    .join("");
+}
+
+function renderReviewListListView(items) {
+  document.getElementById("reviewlist-list-panel").classList.remove("hidden");
+  document.getElementById("reviewlist-card-panel").classList.add("hidden");
+
+  const isIncorrect = reviewListCategory === "incorrect";
+  document.getElementById("reviewlist-list-hint").textContent = isIncorrect ? "顯示正確拼法與你打錯的地方。" : "";
+
+  const container = document.getElementById("reviewlist-items");
+  const pagerContainer = document.getElementById("reviewlist-pager");
+  if (!items.length) {
+    container.innerHTML = `<p class="hint">${reviewListEmptyText()}</p>`;
+    pagerContainer.innerHTML = "";
+    reviewListPage = 0;
+    return;
+  }
+  const totalPages = Math.max(1, Math.ceil(items.length / REVIEWLIST_PAGE_SIZE));
+  reviewListPage = Math.min(Math.max(0, reviewListPage), totalPages - 1);
+  const start = reviewListPage * REVIEWLIST_PAGE_SIZE;
+  const shown = items.slice(start, start + REVIEWLIST_PAGE_SIZE);
+  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, isIncorrect)).join("");
+  container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>`;
+  pagerContainer.innerHTML = buildPagerHtml("reviewlist", reviewListPage, totalPages, items.length);
+}
+
+// The correct word's zh meaning, plus (for 答錯待複習 only, via the same
+// diff already used elsewhere - see renderWrongAnswerCell) what was
+// actually typed wrong last time - both revealed together the moment a
+// flashcard is flipped.
+function buildFlashcardRevealHtml(detail) {
+  const zhHtml = zhLines(detail.zh).map((l) => escapeHtml(l)).join("<br>");
+  const wrongHtml = detail.lastWrongAnswer ? `<div class="word-card-wrong">${renderWrongAnswerCell(detail)}</div>` : "";
+  return `<div>${zhHtml}</div>${wrongHtml}`;
+}
+
+function renderFlashcard() {
+  const items = reviewListCardDeck;
+  if (!items.length) return;
+  const { detail } = items[reviewListCardIndex];
+
+  document.getElementById("flashcard-progress").textContent = `第 ${reviewListCardIndex + 1} / ${items.length} 張`;
+  document.getElementById("flashcard-level").textContent = `Level ${detail.level}`;
+  document.getElementById("flashcard-word").textContent = detail.word;
+  document.getElementById("flashcard-pos").textContent = detail.pos || "";
+  document.getElementById("flashcard-play-btn").dataset.word = detail.word;
+
+  const revealEl = document.getElementById("flashcard-reveal");
+  revealEl.classList.add("hidden"); // every card starts front-side-up
+  revealEl.innerHTML = buildFlashcardRevealHtml(detail);
+  document.getElementById("flashcard-tap-hint").classList.remove("hidden");
+
+  document.getElementById("flashcard-prev-btn").disabled = reviewListCardIndex <= 0;
+  document.getElementById("flashcard-next-btn").disabled = reviewListCardIndex >= items.length - 1;
+
+  // Same lag-reduction idea as the quiz's own preloadNextAudio.
+  const next = items[reviewListCardIndex + 1];
+  if (next) loadAudioBuffer(next.detail.word).catch(() => {});
+
+  speak(detail.word);
+}
+
+function toggleFlashcardReveal() {
+  const revealEl = document.getElementById("flashcard-reveal");
+  const hintEl = document.getElementById("flashcard-tap-hint");
+  const nowHidden = revealEl.classList.toggle("hidden");
+  hintEl.classList.toggle("hidden", !nowHidden);
+}
+
+function renderReviewListCardView(items) {
+  document.getElementById("reviewlist-list-panel").classList.add("hidden");
+  document.getElementById("reviewlist-card-panel").classList.remove("hidden");
+
+  const emptyEl = document.getElementById("reviewlist-card-empty");
+  const bodyEl = document.getElementById("reviewlist-card-body");
+  if (!items.length) {
+    emptyEl.textContent = reviewListEmptyText();
+    emptyEl.classList.remove("hidden");
+    bodyEl.classList.add("hidden");
+    reviewListCardDeck = [];
+    return;
+  }
+  emptyEl.classList.add("hidden");
+  bodyEl.classList.remove("hidden");
+  reviewListCardDeck = items;
+  reviewListCardIndex = Math.min(Math.max(0, reviewListCardIndex), items.length - 1);
+  renderFlashcard();
+}
+
+function renderReviewList() {
+  populateReviewSortOptions();
+  const cats = Logic.categorizeWords(reviewListPool(), progressStore);
+  document.getElementById("reviewlist-incorrect-count").textContent = cats.incorrect.length;
+  document.getElementById("reviewlist-learning-count").textContent = cats.learning.length;
+
+  const items = currentReviewListItems();
+  if (reviewListViewMode === "list") renderReviewListListView(items);
+  else renderReviewListCardView(items);
+}
+
+// Starts a REAL quiz round (reusing the exact same vocabTest engine as the
+// home screen's own modes - see the vocabTest object's own comment on
+// `customDeck`) scoped to exactly the words currently in the flashcard
+// deck. Answers record completely normally: this is not a separate
+// "practice" mode, it's the same dictation quiz with a hand-picked word
+// list instead of a ratio-driven one.
+function startReviewDeckTest() {
+  const deck = reviewListCardDeck.map((item) => item.detail);
+  if (!deck.length) return;
+  getAudioContext();
+  const shuffled = Logic.shuffle(deck);
+  vocabTest.list = shuffled;
+  vocabTest.pool = shuffled;
+  vocabTest.customDeck = true;
+  document.getElementById("test-summary").classList.add("hidden");
+  document.getElementById("test-empty").classList.add("hidden");
+  document.getElementById("test-body").classList.remove("hidden");
+  vocabTest.index = 0;
+  vocabTest.answeredCount = 0;
+  vocabTest.correctCount = 0;
+  vocabTest.missed = [];
+  vocabTest.inProgress = true;
+  vocabTest.startedAt = Date.now();
+  vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
+  document.getElementById("test-form").classList.remove("hidden");
+  showView("test");
+  startRoundTimer(updateTestTimeDisplay);
+  showTestWord();
+}
+
+document.getElementById("reviewlist-category-tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn[data-category]");
+  if (!btn || btn.dataset.category === reviewListCategory) return;
+  reviewListCategory = btn.dataset.category;
+  reviewListPage = 0;
+  reviewListCardIndex = 0;
+  document.querySelectorAll("#reviewlist-category-tabs .segmented-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  renderReviewList();
+});
+
+document.getElementById("reviewlist-view-tabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".segmented-btn[data-mode]");
+  if (!btn || btn.dataset.mode === reviewListViewMode) return;
+  reviewListViewMode = btn.dataset.mode;
+  document.querySelectorAll("#reviewlist-view-tabs .segmented-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  renderReviewList();
+});
 
 document.getElementById("reviewlist-search").addEventListener("input", (e) => {
   reviewListSearch = e.target.value;
-  reviewListIncorrectPage = 0;
-  reviewListLearningPage = 0;
+  reviewListPage = 0;
+  reviewListCardIndex = 0;
   renderReviewList();
 });
 
-document.getElementById("reviewlist-incorrect-sort").addEventListener("change", (e) => {
-  reviewListIncorrectSort = e.target.value;
-  reviewListIncorrectPage = 0;
+document.getElementById("reviewlist-sort").addEventListener("change", (e) => {
+  reviewListSort[reviewListCategory] = e.target.value;
+  reviewListPage = 0;
+  reviewListCardIndex = 0;
   renderReviewList();
 });
 
-document.getElementById("reviewlist-learning-sort").addEventListener("change", (e) => {
-  reviewListLearningSort = e.target.value;
-  reviewListLearningPage = 0;
-  renderReviewList();
+document.getElementById("flashcard-prev-btn").addEventListener("click", () => {
+  if (reviewListCardIndex > 0) {
+    reviewListCardIndex -= 1;
+    renderFlashcard();
+  }
 });
+document.getElementById("flashcard-next-btn").addEventListener("click", () => {
+  if (reviewListCardIndex < reviewListCardDeck.length - 1) {
+    reviewListCardIndex += 1;
+    renderFlashcard();
+  }
+});
+document.getElementById("flashcard-test-btn").addEventListener("click", startReviewDeckTest);
+
+// Drag-to-swipe + tap-to-flip on the flashcard itself, via Pointer Events
+// (covers touch, mouse, and pen in one set of listeners - no separate
+// touch/mouse handling needed). A genuine swipe (past
+// FLASHCARD_SWIPE_THRESHOLD_PX) advances/retreats through the deck with a
+// fly-away animation; anything smaller that still moved snaps back; a tap
+// (moved less than FLASHCARD_TAP_TOLERANCE_PX) flips the card instead.
+const FLASHCARD_SWIPE_THRESHOLD_PX = 70;
+const FLASHCARD_TAP_TOLERANCE_PX = 8;
+const FLASHCARD_SWIPE_OUT_MS = 180;
+
+(function setupFlashcardSwipe() {
+  const el = document.getElementById("flashcard");
+  let startX = 0;
+  let startY = 0;
+  let dragging = false;
+  let moved = false;
+
+  function resetTransform() {
+    el.style.transform = "";
+    el.style.opacity = "";
+  }
+
+  // delta: +1 = next card (swiped left), -1 = previous card (swiped right).
+  function goTo(delta) {
+    const lastIndex = reviewListCardDeck.length - 1;
+    const target = reviewListCardIndex + delta;
+    if (target < 0 || target > lastIndex) {
+      resetTransform();
+      return;
+    }
+    el.style.transform = `translateX(${delta > 0 ? -520 : 520}px) rotate(${delta > 0 ? -18 : 18}deg)`;
+    el.style.opacity = "0";
+    setTimeout(() => {
+      reviewListCardIndex = target;
+      el.classList.add("dragging"); // suppress the transition for this reset jump
+      resetTransform();
+      renderFlashcard();
+      requestAnimationFrame(() => el.classList.remove("dragging"));
+    }, FLASHCARD_SWIPE_OUT_MS);
+  }
+
+  el.addEventListener("pointerdown", (e) => {
+    if (e.target.closest(".flashcard-play-btn")) return; // let its own click handler run
+    dragging = true;
+    moved = false;
+    startX = e.clientX;
+    startY = e.clientY;
+    el.classList.add("dragging");
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > FLASHCARD_TAP_TOLERANCE_PX || Math.abs(dy) > FLASHCARD_TAP_TOLERANCE_PX) moved = true;
+    el.style.transform = `translateX(${dx}px) rotate(${dx / 20}deg)`;
+  });
+  el.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove("dragging");
+    const dx = e.clientX - startX;
+    if (!moved) {
+      resetTransform();
+      toggleFlashcardReveal();
+    } else if (dx <= -FLASHCARD_SWIPE_THRESHOLD_PX) {
+      goTo(1);
+    } else if (dx >= FLASHCARD_SWIPE_THRESHOLD_PX) {
+      goTo(-1);
+    } else {
+      resetTransform();
+    }
+  });
+  el.addEventListener("pointercancel", () => {
+    dragging = false;
+    el.classList.remove("dragging");
+    resetTransform();
+  });
+})();
 
 // Delegated so it keeps working across re-renders: play a word's
-// pronunciation, toggle its Chinese meaning open/closed, or page a list.
+// pronunciation (list-view word cards AND the flashcard's own play button,
+// which shares the same .card-play-btn class), toggle a list-view card's
+// Chinese meaning open/closed, or page the list.
 document.getElementById("view-reviewlist").addEventListener("click", (e) => {
   const playBtn = e.target.closest(".card-play-btn");
   if (playBtn) {
@@ -1350,12 +1614,7 @@ document.getElementById("view-reviewlist").addEventListener("click", (e) => {
   }
   const pagerBtn = e.target.closest(".pager-btn");
   if (pagerBtn) {
-    const dir = Number(pagerBtn.dataset.dir);
-    if (pagerBtn.dataset.section === "incorrect") {
-      reviewListIncorrectPage = Math.max(0, reviewListIncorrectPage + dir);
-    } else {
-      reviewListLearningPage = Math.max(0, reviewListLearningPage + dir);
-    }
+    reviewListPage = Math.max(0, reviewListPage + Number(pagerBtn.dataset.dir));
     renderReviewList();
   }
 });
