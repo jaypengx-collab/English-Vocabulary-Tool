@@ -600,11 +600,38 @@ function syncOnAppActive() {
   syncTick();
 }
 
+// Covers the one launch-time gap syncOnAppActive's own triggers below don't:
+// syncTick() silently does nothing (no retry of its own) if the device is
+// offline, or - on an installed/"加到主畫面" app in particular - if
+// document.hidden briefly reads true during the launch transition, right
+// when startSyncLoopIfConfigured's own one-shot call fires. Without a retry,
+// NOTHING brings the very first sync back afterward except the user
+// happening to background/foreground the tab or tapping "立即同步"
+// themselves - which looks exactly like "my progress is gone until I sync
+// manually", even though the real data was safe on the server the whole
+// time (see pushSnapshot's totalAttempts guard). These retries only matter
+// for that one-shot "never even attempted yet" case: `hasSyncedSinceLoad`
+// is left false ONLY when syncTick bailed out before calling
+// pushSnapshot/pullSnapshot at all (see the early-return guard above) - an
+// attempt that actually ran (even one that failed over the network) already
+// sets it true, so this never re-fires on top of a real, already-attempted
+// sync.
+const SYNC_STARTUP_RETRY_DELAYS_MS = [1500, 4000, 9000];
+function scheduleStartupSyncRetries() {
+  for (const delay of SYNC_STARTUP_RETRY_DELAYS_MS) {
+    setTimeout(() => {
+      if (hasSyncedSinceLoad || !isSyncConfigured()) return;
+      syncOnAppActive();
+    }, delay);
+  }
+}
+
 let syncLoopStarted = false;
 function startSyncLoopIfConfigured() {
   if (syncLoopStarted || !isSyncConfigured() || !vocabReady) return;
   syncLoopStarted = true;
   syncOnAppActive();
+  scheduleStartupSyncRetries();
 }
 // app.js calls this once loadVocab() resolves - pulling before then would
 // apply a remote progress snapshot before VOCAB_INDEX exists to migrate it
@@ -628,6 +655,12 @@ window.addEventListener("pageshow", syncOnAppActive);
 window.addEventListener("pagehide", () => {
   if (dirty) pushSnapshot();
 });
+// The one trigger that was missing entirely: launching (or being open)
+// while offline used to mean no automatic sync EVER ran until some other
+// event (a visibility change, a manual tap) happened to fire - now
+// regaining connectivity retries on its own, which is exactly the moment a
+// retry is actually worth attempting.
+window.addEventListener("online", syncOnAppActive);
 
 /* ---------- UI entry points ---------- */
 
