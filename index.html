@@ -223,8 +223,8 @@
             <button type="button" class="card-play-btn flashcard-play-btn" id="flashcard-play-btn" title="播放發音">🔊</button>
             <div class="flashcard-word" id="flashcard-word"></div>
             <div class="flashcard-pos muted" id="flashcard-pos"></div>
-            <div class="flashcard-reveal hidden" id="flashcard-reveal"></div>
-            <p class="hint flashcard-tap-hint" id="flashcard-tap-hint">點卡片看意思</p>
+            <div class="flashcard-reveal" id="flashcard-reveal"></div>
+            <p class="hint flashcard-tap-hint" id="flashcard-tap-hint">點卡片可暫時隱藏意思</p>
           </div>
         </div>
         <div class="row actions flashcard-nav">
@@ -232,8 +232,9 @@
           <button type="button" class="btn secondary" id="flashcard-next-btn">下一個 ›</button>
         </div>
         <div class="row actions">
-          <button type="button" class="btn primary" id="flashcard-test-btn">📝 測驗這些單字</button>
+          <button type="button" class="btn primary" id="flashcard-test-btn" disabled>📝 測驗這些單字</button>
         </div>
+        <p class="hint" id="flashcard-test-hint"></p>
       </div>
     </div>
   </section>

@@ -16,6 +16,18 @@
   --state-incorrect: #e03131;
   --state-memorized: #2f9e44;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  /* Almost every font-size and quite a few paddings in this file are `rem`,
+     so this one number scales the whole app's text and much of its spacing
+     together - bumped up from the 16px browser default because on a phone
+     (this app's primary use case) too much of the UI reads as small even
+     though it technically fits. Pixel-sized touch targets (small round
+     icon buttons especially) don't scale with this and are bumped
+     individually below instead. */
+  font-size: 18px;
+}
+
+@media (max-width: 480px) {
+  :root { font-size: 19px; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -68,8 +80,8 @@ body {
   color: var(--secondary-text);
   border: none;
   border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 0.9rem;
+  padding: 11px 18px;
+  font-size: 0.95rem;
   cursor: pointer;
 }
 
@@ -113,15 +125,15 @@ body {
 .level-chip {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background: var(--secondary);
   border-radius: 10px;
-  padding: 10px 16px;
+  padding: 13px 18px;
   cursor: pointer;
   font-weight: 600;
 }
 
-.level-chip input { accent-color: var(--primary); width: 16px; height: 16px; }
+.level-chip input { accent-color: var(--primary); width: 20px; height: 20px; }
 
 .mode-picker {
   display: flex;
@@ -143,14 +155,14 @@ body {
 
 .mode-chip:has(input:checked), .mode-chip.selected { border-color: var(--primary); }
 
-.mode-chip input { accent-color: var(--primary); width: 16px; height: 16px; }
+.mode-chip input { accent-color: var(--primary); width: 20px; height: 20px; }
 
 .mode-chip span { font-weight: 600; }
 
 .mode-chip small {
   flex-basis: 100%;
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   line-height: 1.4;
 }
 
@@ -159,8 +171,8 @@ body {
   color: var(--secondary-text);
   border: none;
   border-radius: 999px;
-  padding: 7px 14px;
-  font-size: 0.85rem;
+  padding: 10px 16px;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -194,16 +206,16 @@ select, input[type="text"] {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 11px 14px;
   font-size: 1rem;
 }
 
-input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
+input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; min-height: 24px; }
 
 .btn {
   border: none;
   border-radius: 10px;
-  padding: 12px 20px;
+  padding: 14px 22px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -479,13 +491,13 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   background: var(--secondary);
   color: var(--secondary-text);
   border-radius: 999px;
-  width: 22px;
-  height: 22px;
+  width: 36px;
+  height: 36px;
   line-height: 1;
-  font-size: 0.75rem;
+  font-size: 0.95rem;
   cursor: pointer;
   vertical-align: middle;
-  margin-right: 4px;
+  margin-right: 6px;
 }
 
 .row-word-toggle {
@@ -551,10 +563,10 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   background: var(--surface);
   color: var(--secondary-text);
   border-radius: 999px;
-  width: 26px;
-  height: 26px;
+  width: 40px;
+  height: 40px;
   line-height: 1;
-  font-size: 0.8rem;
+  font-size: 1.05rem;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -582,8 +594,8 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   color: var(--secondary-text);
   border: none;
   border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 0.85rem;
+  padding: 10px 16px;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -601,8 +613,8 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 }
 
 .btn.small {
-  padding: 6px 14px;
-  font-size: 0.8rem;
+  padding: 9px 16px;
+  font-size: 0.85rem;
   font-weight: 600;
 }
 
@@ -639,8 +651,8 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 }
 
 @media (max-width: 480px) {
-  .play-btn { width: 76px; height: 76px; font-size: 1.7rem; }
-  .flashcard-word { font-size: 1.6rem; }
+  .play-btn { width: 88px; height: 88px; font-size: 1.9rem; }
+  .flashcard-word { font-size: 1.7rem; }
 }
 
 /* ---------- Review tab: category / view-mode segmented tabs ---------- */
@@ -656,8 +668,8 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
   color: var(--secondary-text);
   border: 2px solid transparent;
   border-radius: 10px;
-  padding: 10px 10px;
-  font-size: 0.85rem;
+  padding: 14px 10px;
+  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -721,10 +733,10 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; }
 }
 
 .flashcard-play-btn {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
-  font-size: 1.5rem;
+  font-size: 1.7rem;
   margin-bottom: 4px;
   box-shadow: var(--shadow);
 }

@@ -915,13 +915,34 @@ function rebalanceAutoModeTail() {
   preloadNextAudio();
 }
 
+// A customDeck round (see startReviewDeckTest) is never time-boxed - it
+// exists to test exactly the words just reviewed, so it ends when every one
+// of THOSE has been gone through, not when a clock runs out. Short-circuiting
+// here is the one change needed to get that: advanceTest()/the submit
+// handler's "is this the last question" check both already fall through to
+// "index reached the end of the list" once this can never be true.
 function testTimeUp() {
+  if (vocabTest.customDeck) return false;
   return Date.now() - vocabTest.startedAt >= vocabTest.timeLimitMs;
 }
 function updateTestTimeDisplay() {
   const elapsedMs = Date.now() - vocabTest.startedAt;
   document.getElementById("test-progress-text").textContent = formatMMSS(vocabTest.timeLimitMs - elapsedMs);
   document.getElementById("test-progress-fill").style.width = `${Math.min(100, (elapsedMs / vocabTest.timeLimitMs) * 100)}%`;
+}
+// A customDeck round shows "第 X / Y 題" and a fill proportional to
+// progress through the list instead of a countdown clock - there is no
+// clock. Used everywhere updateTestTimeDisplay used to be called
+// unconditionally.
+function updateTestProgressDisplay() {
+  if (!vocabTest.customDeck) {
+    updateTestTimeDisplay();
+    return;
+  }
+  const total = vocabTest.list.length;
+  const current = Math.min(vocabTest.index + 1, total);
+  document.getElementById("test-progress-text").textContent = `第 ${current} / ${total} 題`;
+  document.getElementById("test-progress-fill").style.width = `${total ? (current / total) * 100 : 0}%`;
 }
 
 // The Vocabulary Test view has no top-level tab of its own - it's only
@@ -1045,7 +1066,7 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
 
 function showTestWord() {
   const item = vocabTest.list[vocabTest.index];
-  updateTestTimeDisplay();
+  updateTestProgressDisplay();
   document.getElementById("test-level-badge").textContent = `Level ${item.level}`;
 
   vocabTest.answered = false;
@@ -1387,10 +1408,14 @@ function renderFlashcard() {
   document.getElementById("flashcard-pos").textContent = detail.pos || "";
   document.getElementById("flashcard-play-btn").dataset.word = detail.word;
 
+  // Meaning shows immediately, no tap needed - this is a study view, not a
+  // guess-then-check quiz (that's what the real quiz mode is for). Tapping
+  // the card still toggles it away and back, for anyone who wants to cover
+  // it and test themselves before checking - see toggleFlashcardReveal.
   const revealEl = document.getElementById("flashcard-reveal");
-  revealEl.classList.add("hidden"); // every card starts front-side-up
+  revealEl.classList.remove("hidden");
   revealEl.innerHTML = buildFlashcardRevealHtml(detail);
-  document.getElementById("flashcard-tap-hint").classList.remove("hidden");
+  document.getElementById("flashcard-tap-hint").textContent = "點卡片可暫時隱藏意思";
 
   document.getElementById("flashcard-prev-btn").disabled = reviewListCardIndex <= 0;
   document.getElementById("flashcard-next-btn").disabled = reviewListCardIndex >= items.length - 1;
@@ -1400,13 +1425,18 @@ function renderFlashcard() {
   if (next) loadAudioBuffer(next.detail.word).catch(() => {});
 
   speak(detail.word);
+
+  // This card has now genuinely been reviewed this session - see
+  // startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS.
+  reviewListViewedWords.add(detail.word.toLowerCase());
+  updateFlashcardTestButtonState();
 }
 
 function toggleFlashcardReveal() {
   const revealEl = document.getElementById("flashcard-reveal");
   const hintEl = document.getElementById("flashcard-tap-hint");
   const nowHidden = revealEl.classList.toggle("hidden");
-  hintEl.classList.toggle("hidden", !nowHidden);
+  hintEl.textContent = nowHidden ? "點卡片看意思" : "點卡片可暫時隱藏意思";
 }
 
 function renderReviewListCardView(items) {
@@ -1420,6 +1450,7 @@ function renderReviewListCardView(items) {
     emptyEl.classList.remove("hidden");
     bodyEl.classList.add("hidden");
     reviewListCardDeck = [];
+    updateFlashcardTestButtonState();
     return;
   }
   emptyEl.classList.add("hidden");
@@ -1440,15 +1471,65 @@ function renderReviewList() {
   else renderReviewListCardView(items);
 }
 
+// A word only actually counts as "reviewed" once its card has been shown
+// this browsing session (see renderFlashcard) - flipping through 2 of 20
+// cards and hitting "test" must only test those 2, not all 20, otherwise
+// "測驗這些單字" would silently include words the user never actually
+// looked at this round. Reset any time the underlying deck changes (see
+// the category/search/sort handlers below) so a stale viewed-set from a
+// previous deck can never leak into a new one.
+let reviewListViewedWords = new Set();
+
+// Below this many reviewed words, a test is answering straight out of
+// short-term/working memory (you just read it two seconds ago) rather than
+// real recall - clamped to the deck's own size so a genuinely small
+// category (e.g. only 3 incorrect words total) still becomes testable once
+// all 3 are reviewed, instead of an unreachable fixed floor.
+const MIN_REVIEW_DECK_TEST_WORDS = 5;
+
+function reviewDeckTestRequirement() {
+  return Math.min(MIN_REVIEW_DECK_TEST_WORDS, reviewListCardDeck.length);
+}
+
+function reviewedDeckWords() {
+  return reviewListCardDeck.filter((item) => reviewListViewedWords.has(item.detail.word.toLowerCase()));
+}
+
+// Keeps the "測驗這些單字" button (and its hint) in sync with how many of
+// the current deck's words have actually been reviewed this session.
+function updateFlashcardTestButtonState() {
+  const btn = document.getElementById("flashcard-test-btn");
+  const hintEl = document.getElementById("flashcard-test-hint");
+  if (!btn || !hintEl) return;
+  const total = reviewListCardDeck.length;
+  if (!total) {
+    btn.disabled = true;
+    hintEl.textContent = "";
+    return;
+  }
+  const required = reviewDeckTestRequirement();
+  const reviewedCount = reviewedDeckWords().length;
+  const ready = reviewedCount >= required;
+  btn.disabled = !ready;
+  hintEl.textContent = ready
+    ? `已複習 ${reviewedCount} 個單字，可以開始測驗。`
+    : `再複習 ${required - reviewedCount} 個單字就能開始測驗（至少 ${required} 個，避免只靠剛看過的短期記憶作答）。`;
+}
+
 // Starts a REAL quiz round (reusing the exact same vocabTest engine as the
 // home screen's own modes - see the vocabTest object's own comment on
-// `customDeck`) scoped to exactly the words currently in the flashcard
-// deck. Answers record completely normally: this is not a separate
-// "practice" mode, it's the same dictation quiz with a hand-picked word
-// list instead of a ratio-driven one.
+// `customDeck`) scoped to exactly the words actually reviewed in the
+// flashcard deck this session (see reviewListViewedWords) - never the
+// whole category/search-filtered deck regardless of how much of it was
+// actually looked at. Answers record completely normally: this is not a
+// separate "practice" mode, it's the same dictation quiz with a hand-picked
+// word list instead of a ratio-driven one. Never time-boxed (see
+// testTimeUp's own customDeck check) - it ends once every one of these
+// words has been gone through, not when a clock runs out.
 function startReviewDeckTest() {
-  const deck = reviewListCardDeck.map((item) => item.detail);
-  if (!deck.length) return;
+  const reviewed = reviewedDeckWords();
+  if (reviewed.length < reviewDeckTestRequirement()) return; // the button is disabled for this too - never trust the DOM alone
+  const deck = reviewed.map((item) => item.detail);
   getAudioContext();
   const shuffled = Logic.shuffle(deck);
   vocabTest.list = shuffled;
@@ -1463,10 +1544,12 @@ function startReviewDeckTest() {
   vocabTest.missed = [];
   vocabTest.inProgress = true;
   vocabTest.startedAt = Date.now();
-  vocabTest.timeLimitMs = settings.testMinutes * 60 * 1000;
   document.getElementById("test-form").classList.remove("hidden");
   showView("test");
-  startRoundTimer(updateTestTimeDisplay);
+  // No round timer - a customDeck round has no clock to tick (see
+  // testTimeUp/updateTestProgressDisplay); stopRoundTimer just clears any
+  // interval left running from a previous, genuinely time-boxed round.
+  stopRoundTimer();
   showTestWord();
 }
 
@@ -1476,6 +1559,7 @@ document.getElementById("reviewlist-category-tabs").addEventListener("click", (e
   reviewListCategory = btn.dataset.category;
   reviewListPage = 0;
   reviewListCardIndex = 0;
+  reviewListViewedWords = new Set(); // a different word set entirely - see startReviewDeckTest
   document.querySelectorAll("#reviewlist-category-tabs .segmented-btn").forEach((b) => b.classList.toggle("active", b === btn));
   renderReviewList();
 });
@@ -1492,6 +1576,7 @@ document.getElementById("reviewlist-search").addEventListener("input", (e) => {
   reviewListSearch = e.target.value;
   reviewListPage = 0;
   reviewListCardIndex = 0;
+  reviewListViewedWords = new Set(); // a different (filtered) word set - see startReviewDeckTest
   renderReviewList();
 });
 
@@ -1499,6 +1584,8 @@ document.getElementById("reviewlist-sort").addEventListener("change", (e) => {
   reviewListSort[reviewListCategory] = e.target.value;
   reviewListPage = 0;
   reviewListCardIndex = 0;
+  // Same word set, just reordered - no reason to make the user re-review
+  // words they've already looked at purely because they changed the sort.
   renderReviewList();
 });
 
