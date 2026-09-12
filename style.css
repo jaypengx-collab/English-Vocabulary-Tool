@@ -26,10 +26,6 @@
   font-size: 18px;
 }
 
-@media (max-width: 480px) {
-  :root { font-size: 19px; }
-}
-
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14161c;
@@ -536,11 +532,23 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; m
   padding: 10px 12px;
 }
 
+/* Word/pos/level (text, wraps naturally if a word is long) and the action
+   buttons (play/dict/mark) are two DELIBERATE, separately-styled rows,
+   not one row left to wrap wherever it runs out of space - three roughly
+   40px touch targets plus a word plus two badges never reliably fit on one
+   line at phone width, and letting flexbox wrap them by accident stranded
+   whichever button ran out of room on its own near-empty line. */
 .word-card-main {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.word-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
 }
 
 .word-card-word {
@@ -570,8 +578,6 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; m
   cursor: pointer;
   flex-shrink: 0;
 }
-
-.card-dict-btn { margin-left: auto; }
 
 .word-card-meta {
   font-size: 0.8rem;

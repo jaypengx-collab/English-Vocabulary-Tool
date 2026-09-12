@@ -1232,7 +1232,10 @@ const REVIEW_BATCH_SIZE = 20;
 let reviewListCategory = "incorrect"; // "incorrect" | "learning" | "marked"
 let reviewListViewMode = "list"; // "list" | "cards"
 let reviewListSearch = "";
-let reviewListSort = { incorrect: "tries", learning: "slow", marked: "markedOld" };
+// incorrect defaults to answer-count (most-wrong-first), learning to
+// response time (slowest-relative-to-its-length first) - see
+// sortReviewListItems for what each mode compares.
+let reviewListSort = { incorrect: "wrongCount", learning: "slow", marked: "markedOld" };
 let reviewListPage = 0;
 let reviewListCardIndex = 0;
 // The exact ordered item list ({detail, lastSeen}[]) the flashcard view is
@@ -1243,7 +1246,7 @@ let reviewListCardDeck = [];
 
 const REVIEWLIST_SORT_OPTIONS = {
   incorrect: [
-    { value: "tries", label: "嘗試次數（多到少）" },
+    { value: "wrongCount", label: "答錯次數（多到少）" },
     { value: "recent", label: "最近錯誤（新到舊）" },
     { value: "oldest", label: "最近錯誤（舊到新）" },
     { value: "slow", label: "反應時間（慢到快）" },
@@ -1272,6 +1275,13 @@ function sortReviewListItems(items, mode) {
     case "tries":
       // Most total attempts first - the words that keep coming up.
       arr.sort((a, b) => b.detail.attempts - a.detail.attempts);
+      break;
+    case "wrongCount":
+      // Most times answered WRONG specifically first - distinct from
+      // "tries" (total attempts, right+wrong combined), which is what
+      // 答錯待複習 actually needs: how often this word has been gotten
+      // wrong, not just how often it's come up.
+      arr.sort((a, b) => (b.detail.incorrect || 0) - (a.detail.incorrect || 0));
       break;
     case "streak":
       arr.sort((a, b) => a.detail.correctStreak - b.detail.correctStreak);
@@ -1314,10 +1324,12 @@ function buildWordCard(detail, showWrongInfo) {
   return `
     <div class="word-card">
       <div class="word-card-main">
-        <button type="button" class="card-play-btn" data-word="${escapeHtml(detail.word)}" title="播放發音">🔊</button>
         <span class="word-card-word">${escapeHtml(detail.word)}</span>
         <span class="muted">${escapeHtml(detail.pos || "")}</span>
         <span class="word-card-level">Level ${detail.level}</span>
+      </div>
+      <div class="word-card-actions">
+        <button type="button" class="card-play-btn" data-word="${escapeHtml(detail.word)}" title="播放發音">🔊</button>
         <button type="button" class="card-dict-btn" title="顯示／隱藏中文意思">📖</button>
         <button type="button" class="card-mark-btn ${detail.marked ? "marked" : ""}" data-word="${escapeHtml(detail.word)}" title="標記／取消標記，稍後想再複習">${detail.marked ? "⭐" : "☆"}</button>
       </div>
@@ -1403,6 +1415,21 @@ function reviewListEmptyText() {
     : "目前沒有學習中的單字，去做幾回合單字測驗吧！";
 }
 
+// Whether to show the wrong-answer diff (vs. streak progress) is driven by
+// WHICH SECTION the user is browsing, not a per-word guess - 答錯待複習 is
+// about mistakes, so it always shows the diff; 學習中 is about streak
+// progress toward Memorized, so it never does, even for a word that still
+// happens to carry an old lastWrongAnswer from before it recovered (that's
+// history, not what this section is showing). Returns null for 已標記,
+// which has no single section semantic to inherit (a marked word can be
+// any state) - callers fall back to the word's own current state for that
+// one category only.
+function showWrongInfoForCategory() {
+  if (reviewListCategory === "incorrect") return true;
+  if (reviewListCategory === "learning") return false;
+  return null;
+}
+
 function populateReviewSortOptions() {
   const select = document.getElementById("reviewlist-sort");
   const current = reviewListSort[reviewListCategory];
@@ -1434,13 +1461,10 @@ function renderReviewListListView(items) {
   reviewListPage = Math.min(Math.max(0, reviewListPage), totalPages - 1);
   const start = reviewListPage * REVIEWLIST_PAGE_SIZE;
   const shown = items.slice(start, start + REVIEWLIST_PAGE_SIZE);
-  // Per-ITEM, not per-category, so the mixed-state 已標記 list still shows
-  // the wrong-answer diff for whichever of its words happen to be
-  // currently incorrect (and streak info for the rest) - for 答錯待複習/
-  // 學習中 this is equivalent to the old category-wide flag, since every
-  // word in those two categories already shares that one state by
-  // definition of categorizeWords.
-  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, detail.state === "incorrect")).join("");
+  const sectionShowWrong = showWrongInfoForCategory();
+  const cardsHtml = shown
+    .map(({ detail }) => buildWordCard(detail, sectionShowWrong === null ? detail.state === "incorrect" : sectionShowWrong))
+    .join("");
   container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>`;
   pagerContainer.innerHTML = buildPagerHtml("reviewlist", reviewListPage, totalPages, items.length);
 }
@@ -1449,9 +1473,9 @@ function renderReviewListListView(items) {
 // diff already used elsewhere - see renderWrongAnswerCell) what was
 // actually typed wrong last time - both revealed together the moment a
 // flashcard is flipped.
-function buildFlashcardRevealHtml(detail) {
+function buildFlashcardRevealHtml(detail, showWrongInfo) {
   const zhHtml = zhLines(detail.zh).map((l) => escapeHtml(l)).join("<br>");
-  const wrongHtml = detail.lastWrongAnswer ? `<div class="word-card-wrong">${renderWrongAnswerCell(detail)}</div>` : "";
+  const wrongHtml = showWrongInfo && detail.lastWrongAnswer ? `<div class="word-card-wrong">${renderWrongAnswerCell(detail)}</div>` : "";
   return `<div>${zhHtml}</div>${wrongHtml}`;
 }
 
@@ -1496,7 +1520,8 @@ function renderFlashcard() {
   // it and test themselves before checking - see toggleFlashcardReveal.
   const revealEl = document.getElementById("flashcard-reveal");
   revealEl.classList.remove("hidden");
-  revealEl.innerHTML = buildFlashcardRevealHtml(detail);
+  const sectionShowWrong = showWrongInfoForCategory();
+  revealEl.innerHTML = buildFlashcardRevealHtml(detail, sectionShowWrong === null ? detail.state === "incorrect" : sectionShowWrong);
   document.getElementById("flashcard-tap-hint").textContent = "點卡片可暫時隱藏意思";
 
   document.getElementById("flashcard-prev-btn").disabled = reviewListCardIndex <= 0;
@@ -1514,18 +1539,30 @@ function renderFlashcard() {
 
   speak(detail.word);
 
-  // This card has now genuinely been reviewed - both for
-  // startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS (this session's deck)
-  // and, persisted onto the word's own history, for selectReviewBatch to
-  // stop resurfacing it for a while (see currentReviewBatchItems).
+  updateFlashcardTestButtonState();
+  updateFlashcardBatchHint();
+}
+
+// A card only counts as reviewed once you move PAST it - not the instant
+// it's displayed - so just opening 卡片瀏覽 and glancing at the first card
+// without going anywhere doesn't silently count it. Called by every
+// navigation action (next/prev buttons, swipe, loading the next batch)
+// BEFORE the index/deck actually changes, so it always marks whatever was
+// still on screen a moment ago, not whatever's about to appear.
+function markCurrentCardReviewed() {
+  const items = reviewListCardDeck;
+  if (!items.length) return;
+  const { detail } = items[reviewListCardIndex];
+  // Both for startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS (this
+  // session's deck) and, persisted onto the word's own history, for
+  // selectReviewBatch to stop resurfacing it for a while (see
+  // currentReviewBatchItems).
   reviewListViewedWords.add(detail.word.toLowerCase());
   const history = progressStore[detail.word.toLowerCase()];
   if (history) {
     Logic.markReviewed(history, Date.now());
     saveProgress();
   }
-  updateFlashcardTestButtonState();
-  updateFlashcardBatchHint();
 }
 
 function toggleFlashcardReveal() {
@@ -1730,11 +1767,13 @@ document.getElementById("reviewlist-sort").addEventListener("change", (e) => {
 
 document.getElementById("flashcard-prev-btn").addEventListener("click", () => {
   if (reviewListCardIndex > 0) {
+    markCurrentCardReviewed();
     reviewListCardIndex -= 1;
     renderFlashcard();
   }
 });
 document.getElementById("flashcard-next-btn").addEventListener("click", () => {
+  markCurrentCardReviewed();
   if (reviewListCardIndex < reviewListCardDeck.length - 1) {
     reviewListCardIndex += 1;
     renderFlashcard();
@@ -1789,6 +1828,7 @@ const FLASHCARD_SWIPE_OUT_MS = 180;
     // swiping backward past the first card of a batch just snaps back,
     // there is no "previous batch" to go to.
     if (target > lastIndex) {
+      markCurrentCardReviewed();
       el.style.transform = "translateX(-520px) rotate(-18deg)";
       el.style.opacity = "0";
       setTimeout(() => {
@@ -1803,6 +1843,7 @@ const FLASHCARD_SWIPE_OUT_MS = 180;
       resetTransform();
       return;
     }
+    markCurrentCardReviewed();
     el.style.transform = `translateX(${delta > 0 ? -520 : 520}px) rotate(${delta > 0 ? -18 : 18}deg)`;
     el.style.opacity = "0";
     setTimeout(() => {
