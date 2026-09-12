@@ -2014,6 +2014,16 @@ async function init() {
   await loadVocab();
   updateLevelHint();
   applySettingsToUI(); // also refreshes the auto-mode ratio hint via applyModeToUI
+  // Pre-renders 複習 right away instead of waiting for its tab to be
+  // clicked the first time - showView() only toggles CSS visibility (the
+  // underlying DOM is never removed), so there is nothing wrong with
+  // populating it before it is ever shown. Without this, the tab's FIRST
+  // ever click could show whatever was already in the DOM at that instant
+  // (nothing, on a fresh load) while the real render was still catching up
+  // to state set up earlier in init() - by rendering it here, the content
+  // is already correct and waiting the moment the tab becomes visible, on
+  // the very first click, not the next one.
+  renderReviewList();
 
   if (window.speechSynthesis) {
     refreshVoices();
