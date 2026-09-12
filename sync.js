@@ -240,6 +240,10 @@ function compactHistory(h, baseMs) {
     // real, common case that must round-trip back to exactly 0, not to
     // "just reviewed at export time" (see expandHistory below).
     h.lastReviewedAt ? secondsBefore(baseMs, h.lastReviewedAt) : null,
+    // Same null-sentinel reasoning as lastReviewedAt just above - most
+    // words are simply never marked, and that must round-trip back to
+    // exactly 0, not "marked at export time".
+    h.markedAt ? secondsBefore(baseMs, h.markedAt) : null,
   ];
 }
 function expandHistory(tuple, baseMs) {
@@ -260,9 +264,10 @@ function expandHistory(tuple, baseMs) {
     firstSeen: lastSeen,
     lastSeen: lastSeen,
     lastResult: LAST_RESULT_FROM_CODE[tuple[4]],
-    // A snapshot from before this field existed simply has no tuple[8] at
-    // all (undefined, not null) - same "never reviewed" outcome either way.
+    // A snapshot from before either field existed simply has no tuple[8]/
+    // tuple[9] at all (undefined, not null) - same "unset" outcome either way.
     lastReviewedAt: typeof tuple[8] === "number" ? baseMs - tuple[8] * 1000 : 0,
+    markedAt: typeof tuple[9] === "number" ? baseMs - tuple[9] * 1000 : 0,
   };
 }
 

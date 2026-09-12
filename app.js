@@ -1229,10 +1229,10 @@ const REVIEWLIST_PAGE_SIZE = 20;
 // hundreds of words, large enough to clear MIN_REVIEW_DECK_TEST_WORDS with
 // room to spare for a meaningful "測驗這些單字" round.
 const REVIEW_BATCH_SIZE = 20;
-let reviewListCategory = "incorrect"; // "incorrect" | "learning"
+let reviewListCategory = "incorrect"; // "incorrect" | "learning" | "marked"
 let reviewListViewMode = "list"; // "list" | "cards"
 let reviewListSearch = "";
-let reviewListSort = { incorrect: "tries", learning: "slow" };
+let reviewListSort = { incorrect: "tries", learning: "slow", marked: "markedOld" };
 let reviewListPage = 0;
 let reviewListCardIndex = 0;
 // The exact ordered item list ({detail, lastSeen}[]) the flashcard view is
@@ -1257,10 +1257,15 @@ const REVIEWLIST_SORT_OPTIONS = {
     { value: "oldest", label: "最近練習（舊到新）" },
     { value: "az", label: "字母順序 A→Z" },
   ],
+  marked: [
+    { value: "markedOld", label: "標記時間（舊到新）" },
+    { value: "markedNew", label: "標記時間（新到舊）" },
+    { value: "az", label: "字母順序 A→Z" },
+  ],
 };
 
-// Shared by both the Incorrect and Learning lists - not every mode is
-// offered in both dropdowns, but the comparators are the same either way.
+// Shared by all three category lists - not every mode is offered in every
+// dropdown, but the comparators are the same either way.
 function sortReviewListItems(items, mode) {
   const arr = items.slice();
   switch (mode) {
@@ -1276,6 +1281,12 @@ function sortReviewListItems(items, mode) {
       break;
     case "oldest":
       arr.sort((a, b) => a.lastSeen - b.lastSeen);
+      break;
+    case "markedOld":
+      arr.sort((a, b) => a.detail.markedAt - b.detail.markedAt);
+      break;
+    case "markedNew":
+      arr.sort((a, b) => b.detail.markedAt - a.detail.markedAt);
       break;
     case "az":
       arr.sort((a, b) => a.detail.word.localeCompare(b.detail.word));
@@ -1308,6 +1319,7 @@ function buildWordCard(detail, showWrongInfo) {
         <span class="muted">${escapeHtml(detail.pos || "")}</span>
         <span class="word-card-level">Level ${detail.level}</span>
         <button type="button" class="card-dict-btn" title="顯示／隱藏中文意思">📖</button>
+        <button type="button" class="card-mark-btn ${detail.marked ? "marked" : ""}" data-word="${escapeHtml(detail.word)}" title="標記／取消標記，稍後想再複習">${detail.marked ? "⭐" : "☆"}</button>
       </div>
       <div class="word-card-meta muted">${metaParts.join("　・　")}</div>
       ${showWrongInfo ? `<div class="word-card-wrong">${renderWrongAnswerCell(detail)}</div>` : ""}
@@ -1338,9 +1350,17 @@ function reviewListPool() {
 // test) never shows a different word set than what's on screen.
 function currentReviewListWords() {
   const pool = reviewListPool();
-  const cats = Logic.categorizeWords(pool, progressStore);
   const search = reviewListSearch.trim().toLowerCase();
-  const words = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
+  let words;
+  if (reviewListCategory === "marked") {
+    // Independent of state - see Logic.filterMarked's own comment. A
+    // marked word can be Memorized, still incorrect, whatever; marking
+    // never changes state and state never clears a mark.
+    words = Logic.filterMarked(pool, progressStore);
+  } else {
+    const cats = Logic.categorizeWords(pool, progressStore);
+    words = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
+  }
   return words.filter((w) => !search || w.word.toLowerCase().includes(search));
 }
 
@@ -1377,6 +1397,7 @@ function currentReviewBatchItems() {
 
 function reviewListEmptyText() {
   if (reviewListSearch.trim()) return "沒有符合搜尋的單字。";
+  if (reviewListCategory === "marked") return "目前沒有標記的單字，瀏覽單字時點擊 ☆ 就能加進來，稍後再回來複習。";
   return reviewListCategory === "incorrect"
     ? "目前沒有答錯待複習的單字，太厲害了！"
     : "目前沒有學習中的單字，去做幾回合單字測驗吧！";
@@ -1394,8 +1415,12 @@ function renderReviewListListView(items) {
   document.getElementById("reviewlist-list-panel").classList.remove("hidden");
   document.getElementById("reviewlist-card-panel").classList.add("hidden");
 
-  const isIncorrect = reviewListCategory === "incorrect";
-  document.getElementById("reviewlist-list-hint").textContent = isIncorrect ? "顯示正確拼法與你打錯的地方。" : "";
+  const hintByCategory = {
+    incorrect: "顯示正確拼法與你打錯的地方。",
+    learning: "",
+    marked: "點 ⭐ 可以取消標記；標記的單字可以是任何狀態，不會因為答對就自動移除。",
+  };
+  document.getElementById("reviewlist-list-hint").textContent = hintByCategory[reviewListCategory] || "";
 
   const container = document.getElementById("reviewlist-items");
   const pagerContainer = document.getElementById("reviewlist-pager");
@@ -1409,7 +1434,13 @@ function renderReviewListListView(items) {
   reviewListPage = Math.min(Math.max(0, reviewListPage), totalPages - 1);
   const start = reviewListPage * REVIEWLIST_PAGE_SIZE;
   const shown = items.slice(start, start + REVIEWLIST_PAGE_SIZE);
-  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, isIncorrect)).join("");
+  // Per-ITEM, not per-category, so the mixed-state 已標記 list still shows
+  // the wrong-answer diff for whichever of its words happen to be
+  // currently incorrect (and streak info for the rest) - for 答錯待複習/
+  // 學習中 this is equivalent to the old category-wide flag, since every
+  // word in those two categories already shares that one state by
+  // definition of categorizeWords.
+  const cardsHtml = shown.map(({ detail }) => buildWordCard(detail, detail.state === "incorrect")).join("");
   container.innerHTML = `<div class="word-card-list">${cardsHtml}</div>`;
   pagerContainer.innerHTML = buildPagerHtml("reviewlist", reviewListPage, totalPages, items.length);
 }
@@ -1454,6 +1485,10 @@ function renderFlashcard() {
   document.getElementById("flashcard-word").textContent = detail.word;
   document.getElementById("flashcard-pos").textContent = detail.pos || "";
   document.getElementById("flashcard-play-btn").dataset.word = detail.word;
+  const markBtn = document.getElementById("flashcard-mark-btn");
+  markBtn.dataset.word = detail.word;
+  markBtn.textContent = detail.marked ? "⭐" : "☆";
+  markBtn.classList.toggle("marked", !!detail.marked);
 
   // Meaning shows immediately, no tap needed - this is a study view, not a
   // guess-then-check quiz (that's what the real quiz mode is for). Tapping
@@ -1533,42 +1568,72 @@ function loadNextReviewBatch() {
   renderReviewListCardView(currentReviewBatchItems());
 }
 
-function renderReviewList() {
-  populateReviewSortOptions();
-  const cats = Logic.categorizeWords(reviewListPool(), progressStore);
+// Refreshes just the three category tab count badges - deliberately NOT
+// the rest of renderReviewList, so a mark toggled from the FLASHCARD view
+// (see the flashcard-mark-btn handler below) never recomputes/re-shuffles
+// the current batch (Logic.selectReviewBatch draws fresh randomness on
+// every call) out from under an in-progress browsing session just because
+// its star button was tapped.
+function updateReviewListCounts() {
+  const pool = reviewListPool();
+  const cats = Logic.categorizeWords(pool, progressStore);
   document.getElementById("reviewlist-incorrect-count").textContent = cats.incorrect.length;
   document.getElementById("reviewlist-learning-count").textContent = cats.learning.length;
+  document.getElementById("reviewlist-marked-count").textContent = Logic.filterMarked(pool, progressStore).length;
+}
 
+function renderReviewList() {
+  populateReviewSortOptions();
+  updateReviewListCounts();
   if (reviewListViewMode === "list") renderReviewListListView(currentReviewListItems());
   else renderReviewListCardView(currentReviewBatchItems());
 }
 
+// Flips a word's "review this again" flag and persists it - shared by the
+// list view's per-row star button and the flashcard's own. Returns the new
+// marked state so a caller that wants to update just one button's icon (the
+// flashcard case) doesn't need a full re-render to find out what happened.
+function toggleWordMark(word) {
+  const key = word.toLowerCase();
+  if (!progressStore[key]) {
+    progressStore[key] = Logic.createEmptyWordHistory(word, null, word.length);
+  }
+  const history = progressStore[key];
+  Logic.setMarked(history, !Logic.isMarked(history));
+  saveProgress();
+  return Logic.isMarked(history);
+}
+
 // A word only actually counts as "reviewed" once its card has been shown
-// this browsing session (see renderFlashcard) - flipping through 2 of 20
-// cards and hitting "test" must only test those 2, not all 20, otherwise
-// "測驗這些單字" would silently include words the user never actually
-// looked at this round. Reset any time the underlying deck changes (see
-// the category/search/sort handlers below) so a stale viewed-set from a
-// previous deck can never leak into a new one.
+// this browsing session (see renderFlashcard) - used only to GATE the
+// "測驗這些單字" button (see reviewDeckTestRequirement below), not to pick
+// which words the test covers - the batch itself is the testable unit (see
+// startReviewDeckTest), so once you're allowed to test at all, it's always
+// the WHOLE current batch, not just however many of it you happened to
+// look at. Reset any time the underlying deck changes (see the category/
+// search/sort handlers below) so a stale viewed-set from a previous deck
+// can never leak into a new one.
 let reviewListViewedWords = new Set();
 
-// Below this many reviewed words, a test is answering straight out of
+// Below this many VIEWED words, a test is answering straight out of
 // short-term/working memory (you just read it two seconds ago) rather than
-// real recall - clamped to the deck's own size so a genuinely small
+// real recall - clamped to the batch's own size so a genuinely small
 // category (e.g. only 3 incorrect words total) still becomes testable once
-// all 3 are reviewed, instead of an unreachable fixed floor.
+// all 3 are viewed, instead of an unreachable fixed floor. Once past this
+// gate, the test still covers the ENTIRE batch, not just the words that
+// individually crossed this count.
 const MIN_REVIEW_DECK_TEST_WORDS = 5;
 
 function reviewDeckTestRequirement() {
   return Math.min(MIN_REVIEW_DECK_TEST_WORDS, reviewListCardDeck.length);
 }
 
-function reviewedDeckWords() {
-  return reviewListCardDeck.filter((item) => reviewListViewedWords.has(item.detail.word.toLowerCase()));
+function reviewedDeckCount() {
+  return reviewListCardDeck.filter((item) => reviewListViewedWords.has(item.detail.word.toLowerCase())).length;
 }
 
-// Keeps the "測驗這些單字" button (and its hint) in sync with how many of
-// the current deck's words have actually been reviewed this session.
+// Keeps the "測驗這些單字" button (and its hint) in sync with how much of
+// the current batch has actually been viewed this session.
 function updateFlashcardTestButtonState() {
   const btn = document.getElementById("flashcard-test-btn");
   const hintEl = document.getElementById("flashcard-test-hint");
@@ -1580,28 +1645,30 @@ function updateFlashcardTestButtonState() {
     return;
   }
   const required = reviewDeckTestRequirement();
-  const reviewedCount = reviewedDeckWords().length;
+  const reviewedCount = reviewedDeckCount();
   const ready = reviewedCount >= required;
   btn.disabled = !ready;
   hintEl.textContent = ready
-    ? `已複習 ${reviewedCount} 個單字，可以開始測驗。`
-    : `再複習 ${required - reviewedCount} 個單字就能開始測驗（至少 ${required} 個，避免只靠剛看過的短期記憶作答）。`;
+    ? `已看過這批 ${reviewedCount} / ${total} 個，可以測驗整批 ${total} 個單字。`
+    : `再看 ${required - reviewedCount} 個單字就能測驗這一批（共 ${total} 個，至少需先看過 ${required} 個，避免只靠剛看過的短期記憶作答）。`;
 }
 
 // Starts a REAL quiz round (reusing the exact same vocabTest engine as the
 // home screen's own modes - see the vocabTest object's own comment on
-// `customDeck`) scoped to exactly the words actually reviewed in the
-// flashcard deck this session (see reviewListViewedWords) - never the
-// whole category/search-filtered deck regardless of how much of it was
-// actually looked at. Answers record completely normally: this is not a
-// separate "practice" mode, it's the same dictation quiz with a hand-picked
-// word list instead of a ratio-driven one. Never time-boxed (see
-// testTimeUp's own customDeck check) - it ends once every one of these
-// words has been gone through, not when a clock runs out.
+// `customDeck`) scoped to the ENTIRE current batch - the batch (see
+// REVIEW_BATCH_SIZE/currentReviewBatchItems) is already the deliberately
+// bounded, single reviewable unit, so the test is scoped to match it
+// exactly rather than some smaller ad-hoc subset of "whichever cards you
+// happened to tap through". reviewedDeckCount only gates WHETHER you can
+// test yet (see MIN_REVIEW_DECK_TEST_WORDS), never which words are in it.
+// Answers record completely normally: this is not a separate "practice"
+// mode, it's the same dictation quiz with a hand-picked word list instead
+// of a ratio-driven one. Never time-boxed (see testTimeUp's own customDeck
+// check) - it ends once every word in the batch has been gone through, not
+// when a clock runs out.
 function startReviewDeckTest() {
-  const reviewed = reviewedDeckWords();
-  if (reviewed.length < reviewDeckTestRequirement()) return; // the button is disabled for this too - never trust the DOM alone
-  const deck = reviewed.map((item) => item.detail);
+  if (reviewedDeckCount() < reviewDeckTestRequirement()) return; // the button is disabled for this too - never trust the DOM alone
+  const deck = reviewListCardDeck.map((item) => item.detail);
   getAudioContext();
   const shuffled = Logic.shuffle(deck);
   vocabTest.list = shuffled;
@@ -1676,6 +1743,20 @@ document.getElementById("flashcard-next-btn").addEventListener("click", () => {
   }
 });
 document.getElementById("flashcard-test-btn").addEventListener("click", startReviewDeckTest);
+document.getElementById("flashcard-mark-btn").addEventListener("click", () => {
+  const items = reviewListCardDeck;
+  if (!items.length) return;
+  const { detail } = items[reviewListCardIndex];
+  const nowMarked = toggleWordMark(detail.word);
+  detail.marked = nowMarked; // keep the in-memory item in sync in case this card is re-rendered later
+  const btn = document.getElementById("flashcard-mark-btn");
+  btn.textContent = nowMarked ? "⭐" : "☆";
+  btn.classList.toggle("marked", nowMarked);
+  // Just the tab counts, deliberately not a full renderReviewList() - see
+  // updateReviewListCounts's own comment on why that must not touch the
+  // current batch/browsing position here.
+  updateReviewListCounts();
+});
 
 // Drag-to-swipe + tap-to-flip on the flashcard itself, via Pointer Events
 // (covers touch, mouse, and pen in one set of listeners - no separate
@@ -1734,7 +1815,7 @@ const FLASHCARD_SWIPE_OUT_MS = 180;
   }
 
   el.addEventListener("pointerdown", (e) => {
-    if (e.target.closest(".flashcard-play-btn")) return; // let its own click handler run
+    if (e.target.closest(".flashcard-play-btn, .flashcard-mark-btn")) return; // let their own click handlers run
     dragging = true;
     moved = false;
     startX = e.clientX;
@@ -1786,6 +1867,16 @@ document.getElementById("view-reviewlist").addEventListener("click", (e) => {
   if (dictBtn) {
     const zhDiv = dictBtn.closest(".word-card").querySelector(".row-zh");
     if (zhDiv) zhDiv.classList.toggle("hidden");
+    return;
+  }
+  const markBtn = e.target.closest(".card-mark-btn");
+  if (markBtn) {
+    toggleWordMark(markBtn.dataset.word);
+    // Full re-render (not just updateReviewListCounts): unlike the
+    // flashcard's own mark button, a list-view toggle has no "in-progress
+    // batch" to protect, and unmarking a word while browsing 已標記 should
+    // visibly drop it from the list right away.
+    renderReviewList();
     return;
   }
   const pagerBtn = e.target.closest(".pager-btn");

@@ -572,6 +572,71 @@ test("computeAutoBalanceRatioForPool derives counts from a pool + historyStore, 
   assert.deepEqual(fromPool, direct);
 });
 
+/* ================= Manual "review this again" marking ================= */
+
+test("setMarked flags a word and isMarked reflects it; unmarking clears it back to 0", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  assert.equal(L.isMarked(h), false);
+  L.setMarked(h, true, 5000);
+  assert.equal(h.markedAt, 5000);
+  assert.equal(L.isMarked(h), true);
+  L.setMarked(h, false);
+  assert.equal(h.markedAt, 0);
+  assert.equal(L.isMarked(h), false);
+});
+
+test("setMarked defaults the timestamp to now when marking without one", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  const before = Date.now();
+  L.setMarked(h, true);
+  assert.ok(h.markedAt >= before);
+});
+
+test("marking is independent of state - answering a marked word correctly does not un-mark it", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  L.setMarked(h, true, 1000);
+  L.recordAttempt(h, { correct: true, responseMs: 500, timestamp: 2000 });
+  L.recordAttempt(h, { correct: true, responseMs: 500, timestamp: 3000 });
+  assert.equal(L.classifyState(h), "memorized");
+  assert.equal(L.isMarked(h), true, "reaching Memorized must not silently clear a manual mark");
+});
+
+test("filterMarked returns only marked words, regardless of their state", () => {
+  const historyStore = {};
+  const pool = makePool(5, 4, "w");
+  // w0: marked + never attempted (still "new"). w2: marked + memorized. Rest: unmarked.
+  const h0 = L.createEmptyWordHistory("w0", 4, 2);
+  L.setMarked(h0, true, 1000);
+  historyStore.w0 = h0;
+
+  const h2 = L.createEmptyWordHistory("w2", 4, 2);
+  L.recordAttempt(h2, { correct: true, responseMs: 500, timestamp: 1000 });
+  L.recordAttempt(h2, { correct: true, responseMs: 500, timestamp: 2000 });
+  L.setMarked(h2, true, 3000);
+  historyStore.w2 = h2;
+
+  const h3 = L.createEmptyWordHistory("w3", 4, 2);
+  L.recordAttempt(h3, { correct: false, responseMs: 500, timestamp: 1000 });
+  historyStore.w3 = h3; // incorrect but NOT marked
+
+  const marked = L.filterMarked(pool, historyStore);
+  assert.deepEqual(marked.map((w) => w.word).sort(), ["w0", "w2"]);
+});
+
+test("computeWordDetail exposes marked/markedAt so the UI can render a star toggle", () => {
+  const historyStore = {};
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  L.setMarked(h, true, 7000);
+  historyStore.cat = h;
+  const detail = L.computeWordDetail({ word: "cat", level: 4, pos: "n.", zh: "貓" }, historyStore);
+  assert.equal(detail.marked, true);
+  assert.equal(detail.markedAt, 7000);
+
+  const unmarkedDetail = L.computeWordDetail({ word: "dog", level: 4, pos: "n.", zh: "狗" }, {});
+  assert.equal(unmarkedDetail.marked, false);
+  assert.equal(unmarkedDetail.markedAt, 0);
+});
+
 /* ================= Review batching (large-backlog sessions) ================= */
 
 test("recordAttempt also updates lastReviewedAt, same as lastSeen - a quiz attempt counts as reviewing the word", () => {

@@ -190,6 +190,7 @@
       <div class="row segmented" id="reviewlist-category-tabs">
         <button type="button" class="segmented-btn active" data-category="incorrect">❌ 答錯待複習 <span id="reviewlist-incorrect-count">0</span></button>
         <button type="button" class="segmented-btn" data-category="learning">📖 學習中 <span id="reviewlist-learning-count">0</span></button>
+        <button type="button" class="segmented-btn" data-category="marked">⭐ 已標記 <span id="reviewlist-marked-count">0</span></button>
       </div>
       <div class="row">
         <input type="text" id="reviewlist-search" placeholder="搜尋單字..." />
@@ -221,6 +222,7 @@
         <div class="flashcard-stage">
           <div class="flashcard" id="flashcard">
             <div class="flashcard-level" id="flashcard-level"></div>
+            <button type="button" class="flashcard-mark-btn" id="flashcard-mark-btn" title="標記／取消標記，稍後想再複習">☆</button>
             <button type="button" class="card-play-btn flashcard-play-btn" id="flashcard-play-btn" title="播放發音">🔊</button>
             <div class="flashcard-word" id="flashcard-word"></div>
             <div class="flashcard-pos muted" id="flashcard-pos"></div>

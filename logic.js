@@ -212,6 +212,16 @@
       // selectReviewBatch, so a large backlog surfaces neglected words
       // first instead of the same front-of-the-list words every session.
       lastReviewedAt: 0,
+      // 0 = not marked; otherwise when the user explicitly flagged this
+      // word "review this again" (see setMarked) - completely independent
+      // of state (new/incorrect/learning/memorized) and of the automatic
+      // lastReviewedAt rotation above. That rotation deliberately pushes a
+      // just-viewed word to the back of the queue so a big backlog keeps
+      // moving forward; marking is the escape hatch for "no, I specifically
+      // want to see THIS one again soon" - a word stays marked until the
+      // user unmarks it, it is never cleared automatically by browsing or
+      // by answering it correctly.
+      markedAt: 0,
       // Legacy fields from earlier schema versions, kept only so old
       // stored data doesn't break migration; not used by any logic below.
       box: 0,
@@ -346,6 +356,19 @@
   function markReviewed(history, timestamp) {
     history.lastReviewedAt = typeof timestamp === "number" ? timestamp : Date.now();
     return history;
+  }
+
+  // Toggles (or explicitly sets) a word's "review this again" flag - see
+  // createEmptyWordHistory's own comment on markedAt for why this is
+  // separate from lastReviewedAt/the automatic rotation. `marked` true
+  // sets markedAt to `timestamp` (defaulting to now); false/omitted clears
+  // it back to 0.
+  function setMarked(history, marked, timestamp) {
+    history.markedAt = marked ? (typeof timestamp === "number" ? timestamp : Date.now()) : 0;
+    return history;
+  }
+  function isMarked(history) {
+    return !!(history && history.markedAt > 0);
   }
 
   /* ---------- State classification (simple, streak-based) ---------- */
@@ -523,6 +546,15 @@
       else learning.push(w);
     }
     return { unseen: unseen, incorrect: incorrect, learning: learning, memorized: memorized };
+  }
+
+  // Words the user has explicitly marked "review this again" (see
+  // setMarked) - orthogonal to categorizeWords's state buckets above, so
+  // this can include a word of ANY state (even Memorized - marking it
+  // doesn't change its state, and answering it right enough times doesn't
+  // un-mark it either; only the user unmarking it does).
+  function filterMarked(pool, historyStore) {
+    return pool.filter((w) => isMarked(historyFor(historyStore, w.word)));
   }
 
   // Picks up to `size` words from `words`, ordered so the ones LEAST
@@ -798,6 +830,8 @@
       recentWrongAnswers: recentWrongAnswersOf(h),
       state: state,
       relativeResponseTime: baseline ? relativeResponseTime(h, baseline) : null,
+      marked: isMarked(h),
+      markedAt: h ? h.markedAt || 0 : 0,
     };
   }
 
@@ -814,6 +848,8 @@
     computeImprovementTrend: computeImprovementTrend,
     recordAttempt: recordAttempt,
     markReviewed: markReviewed,
+    setMarked: setMarked,
+    isMarked: isMarked,
     classifyState: classifyState,
     recentWrongAnswersOf: recentWrongAnswersOf,
     diffChars: diffChars,
@@ -822,6 +858,7 @@
     relativeResponseTime: relativeResponseTime,
     reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
+    filterMarked: filterMarked,
     selectReviewBatch: selectReviewBatch,
     computeQuestionTargets: computeQuestionTargets,
     computeAutoBalanceRatio: computeAutoBalanceRatio,
