@@ -572,6 +572,83 @@ test("computeAutoBalanceRatioForPool derives counts from a pool + historyStore, 
   assert.deepEqual(fromPool, direct);
 });
 
+/* ================= Review batching (large-backlog sessions) ================= */
+
+test("recordAttempt also updates lastReviewedAt, same as lastSeen - a quiz attempt counts as reviewing the word", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  assert.equal(h.lastReviewedAt, 0);
+  L.recordAttempt(h, { correct: true, responseMs: 500, timestamp: 5000 });
+  assert.equal(h.lastReviewedAt, 5000);
+});
+
+test("markReviewed sets lastReviewedAt without touching attempts/correctness", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  L.recordAttempt(h, { correct: false, responseMs: 500, timestamp: 1000 });
+  L.markReviewed(h, 9000);
+  assert.equal(h.lastReviewedAt, 9000);
+  assert.equal(h.attempts, 1, "browsing a flashcard must never count as an attempt");
+  assert.equal(h.lastResult, "incorrect", "must not touch correctness state");
+});
+
+test("markReviewed defaults the timestamp to now when none is given", () => {
+  const h = L.createEmptyWordHistory("cat", 4, 3);
+  const before = Date.now();
+  L.markReviewed(h);
+  assert.ok(h.lastReviewedAt >= before);
+});
+
+test("selectReviewBatch surfaces never-reviewed words before ones reviewed at all, regardless of pool order", () => {
+  const historyStore = {};
+  const pool = makePool(10, 4, "w");
+  // Every word EXCEPT w7 has been reviewed recently - w7 should always win
+  // a 1-word batch.
+  for (const w of pool) {
+    if (w.word === "w7") continue;
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.markReviewed(h, 500000);
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const batch = L.selectReviewBatch(pool, historyStore, 1, seededRandom(1));
+  assert.equal(batch.length, 1);
+  assert.equal(batch[0].word, "w7");
+});
+
+test("selectReviewBatch orders strictly by lastReviewedAt ascending (oldest/never-reviewed first)", () => {
+  const historyStore = {};
+  const pool = makePool(6, 4, "w");
+  const timestamps = [5000, 1000, 4000, 0, 3000, 2000]; // w0..w5
+  pool.forEach((w, i) => {
+    if (timestamps[i] === 0) return; // leave w3 at the default 0 (never reviewed)
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.markReviewed(h, timestamps[i]);
+    historyStore[w.word.toLowerCase()] = h;
+  });
+  const batch = L.selectReviewBatch(pool, historyStore, 6, seededRandom(3));
+  const order = batch.map((w) => w.word);
+  assert.deepEqual(order, ["w3", "w1", "w5", "w4", "w2", "w0"]);
+});
+
+test("selectReviewBatch caps at the requested size and never duplicates a word", () => {
+  const pool = makePool(50, 4, "w");
+  const batch = L.selectReviewBatch(pool, {}, 20, seededRandom(7));
+  assert.equal(batch.length, 20);
+  assert.equal(new Set(batch.map((w) => w.word)).size, 20);
+});
+
+test("selectReviewBatch returns the whole pool (not padded/duplicated) when size exceeds it", () => {
+  const pool = makePool(5, 4, "w");
+  const batch = L.selectReviewBatch(pool, {}, 20, seededRandom(2));
+  assert.equal(batch.length, 5);
+  assert.equal(new Set(batch.map((w) => w.word)).size, 5);
+});
+
+test("selectReviewBatch randomizes order among words with the same lastReviewedAt (e.g. all never-reviewed) rather than always returning pool order", () => {
+  const pool = makePool(30, 4, "w"); // none reviewed - all tied at 0
+  const first = L.selectReviewBatch(pool, {}, 30, seededRandom(11)).map((w) => w.word);
+  const second = L.selectReviewBatch(pool, {}, 30, seededRandom(12)).map((w) => w.word);
+  assert.notDeepEqual(first, second, "two different random seeds should not produce the identical order every time");
+});
+
 /* ================= Persistence / migration / backward compatibility ================= */
 
 test("migrateWordEntry upgrades legacy v1 {box,due,correct,wrong,lastSeen} shape without losing progress", () => {

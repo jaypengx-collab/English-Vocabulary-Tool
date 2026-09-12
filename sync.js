@@ -231,6 +231,15 @@ function compactHistory(h, baseMs) {
     secondsBefore(baseMs, h.lastSeen),
     h.lastWrongAnswer || null,
     recent.map((a) => compactAttempt(a, baseMs)),
+    // `null`, not secondsBefore's own 0-for-unset default: 0 is genuinely
+    // ambiguous here (0 seconds before baseMs vs. "never reviewed") in a
+    // way it isn't for lastSeen (every entry that reaches this function has
+    // already had at least one real quiz attempt, so lastSeen is never
+    // actually 0) - a word CAN easily have real attempts but never once
+    // have been shown in 複習's flashcard view, so lastReviewedAt==0 is a
+    // real, common case that must round-trip back to exactly 0, not to
+    // "just reviewed at export time" (see expandHistory below).
+    h.lastReviewedAt ? secondsBefore(baseMs, h.lastReviewedAt) : null,
   ];
 }
 function expandHistory(tuple, baseMs) {
@@ -251,6 +260,9 @@ function expandHistory(tuple, baseMs) {
     firstSeen: lastSeen,
     lastSeen: lastSeen,
     lastResult: LAST_RESULT_FROM_CODE[tuple[4]],
+    // A snapshot from before this field existed simply has no tuple[8] at
+    // all (undefined, not null) - same "never reviewed" outcome either way.
+    lastReviewedAt: typeof tuple[8] === "number" ? baseMs - tuple[8] * 1000 : 0,
   };
 }
 

@@ -1224,6 +1224,11 @@ document.getElementById("test-exit-btn").addEventListener("click", async () => {
    moves a word toward Memorized. */
 
 const REVIEWLIST_PAGE_SIZE = 20;
+// How many words 卡片瀏覽 loads at a time (see currentReviewBatchItems) -
+// small enough to comfortably finish in one sitting even with a backlog of
+// hundreds of words, large enough to clear MIN_REVIEW_DECK_TEST_WORDS with
+// room to spare for a meaningful "測驗這些單字" round.
+const REVIEW_BATCH_SIZE = 20;
 let reviewListCategory = "incorrect"; // "incorrect" | "learning"
 let reviewListViewMode = "list"; // "list" | "cards"
 let reviewListSearch = "";
@@ -1325,27 +1330,49 @@ function reviewListPool() {
   return wordsForLevels(levels.length ? levels : [4, 5, 6]);
 }
 
-// The current category's items, filtered by search and sorted by the
-// current category's own sort choice - the ONE list both the list view and
-// the card view build off, so switching between them (or taking a custom
+// The current category's words, filtered by search only - not yet sorted
+// for list view or batched for card view, since those two consumers order
+// this pool completely differently (see currentReviewListItems and
+// currentReviewBatchItems below) but must otherwise agree on WHICH words
+// are in play, so switching between the two views (or taking a custom
 // test) never shows a different word set than what's on screen.
-function currentReviewListItems() {
+function currentReviewListWords() {
   const pool = reviewListPool();
   const cats = Logic.categorizeWords(pool, progressStore);
   const search = reviewListSearch.trim().toLowerCase();
+  const words = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
+  return words.filter((w) => !search || w.word.toLowerCase().includes(search));
+}
+
+function wordsToReviewItems(words) {
   // Computed once per call (not per word - see computeWordDetail's own
   // comment) so every word's "反應時間" sort position compares it against
   // the expected time for ITS OWN length, not one flat average dominated
   // by whatever length is most common - see relativeResponseTime.
   const responseTimeBaseline = Logic.computeResponseTimeBaseline(progressStore);
-  const words = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
-  const items = words
-    .filter((w) => !search || w.word.toLowerCase().includes(search))
-    .map((w) => ({
-      detail: Logic.computeWordDetail(w, progressStore, responseTimeBaseline),
-      lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
-    }));
-  return sortReviewListItems(items, reviewListSort[reviewListCategory]);
+  return words.map((w) => ({
+    detail: Logic.computeWordDetail(w, progressStore, responseTimeBaseline),
+    lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
+  }));
+}
+
+// List view's ordering: whatever sort the user picked for this category.
+function currentReviewListItems() {
+  return sortReviewListItems(wordsToReviewItems(currentReviewListWords()), reviewListSort[reviewListCategory]);
+}
+
+// Card view's ordering: a bounded batch (REVIEW_BATCH_SIZE), least-recently-
+// reviewed words first (see Logic.selectReviewBatch) - deliberately NOT the
+// list-view sort above. With a large backlog (hundreds of incorrect/
+// learning words), showing the whole thing as one flashcard deck is exactly
+// what makes big backlogs unmanageable in one sitting; a small batch that
+// always surfaces whatever's gone longest untouched means a big backlog
+// naturally spreads itself across as many sessions as it takes, with no
+// manual bookkeeping, and (since lastReviewedAt lives in the synced
+// progress data) the same rotation continues on any synced device too.
+function currentReviewBatchItems() {
+  const batch = Logic.selectReviewBatch(currentReviewListWords(), progressStore, REVIEW_BATCH_SIZE, Math.random);
+  return wordsToReviewItems(batch);
 }
 
 function reviewListEmptyText() {
@@ -1397,12 +1424,32 @@ function buildFlashcardRevealHtml(detail) {
   return `<div>${zhHtml}</div>${wrongHtml}`;
 }
 
+// How many of the current category's words (regardless of the active
+// search) have been engaged with at all (see Logic.markReviewed/
+// recordAttempt's lastReviewedAt) - the big-picture "how far through my
+// whole backlog am I" counterpart to flashcard-progress's own "第 X / Y
+// 張" (position within just this small batch).
+function updateFlashcardBatchHint() {
+  const hintEl = document.getElementById("flashcard-batch-hint");
+  if (!hintEl) return;
+  const pool = reviewListPool();
+  const cats = Logic.categorizeWords(pool, progressStore);
+  const categoryWords = reviewListCategory === "incorrect" ? cats.incorrect : cats.learning;
+  const total = categoryWords.length;
+  const reviewedCount = categoryWords.filter((w) => {
+    const h = progressStore[w.word.toLowerCase()];
+    return h && h.lastReviewedAt > 0;
+  }).length;
+  hintEl.textContent = total ? `已複習 ${reviewedCount} / ${total} 個（每批 ${REVIEW_BATCH_SIZE} 個，優先顯示最久沒複習的字）` : "";
+}
+
 function renderFlashcard() {
   const items = reviewListCardDeck;
   if (!items.length) return;
   const { detail } = items[reviewListCardIndex];
+  const isLastOfBatch = reviewListCardIndex >= items.length - 1;
 
-  document.getElementById("flashcard-progress").textContent = `第 ${reviewListCardIndex + 1} / ${items.length} 張`;
+  document.getElementById("flashcard-progress").textContent = `這批第 ${reviewListCardIndex + 1} / ${items.length} 張`;
   document.getElementById("flashcard-level").textContent = `Level ${detail.level}`;
   document.getElementById("flashcard-word").textContent = detail.word;
   document.getElementById("flashcard-pos").textContent = detail.pos || "";
@@ -1418,7 +1465,13 @@ function renderFlashcard() {
   document.getElementById("flashcard-tap-hint").textContent = "點卡片可暫時隱藏意思";
 
   document.getElementById("flashcard-prev-btn").disabled = reviewListCardIndex <= 0;
-  document.getElementById("flashcard-next-btn").disabled = reviewListCardIndex >= items.length - 1;
+  // Never disabled at the end of a batch - the button instead offers a
+  // fresh batch (see the click handler below), so a big backlog is never a
+  // hard wall mid-session, just a natural pause point if you'd rather stop
+  // here.
+  const nextBtn = document.getElementById("flashcard-next-btn");
+  nextBtn.disabled = false;
+  nextBtn.textContent = isLastOfBatch ? "下一批 →" : "下一個 ›";
 
   // Same lag-reduction idea as the quiz's own preloadNextAudio.
   const next = items[reviewListCardIndex + 1];
@@ -1426,10 +1479,18 @@ function renderFlashcard() {
 
   speak(detail.word);
 
-  // This card has now genuinely been reviewed this session - see
-  // startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS.
+  // This card has now genuinely been reviewed - both for
+  // startReviewDeckTest/MIN_REVIEW_DECK_TEST_WORDS (this session's deck)
+  // and, persisted onto the word's own history, for selectReviewBatch to
+  // stop resurfacing it for a while (see currentReviewBatchItems).
   reviewListViewedWords.add(detail.word.toLowerCase());
+  const history = progressStore[detail.word.toLowerCase()];
+  if (history) {
+    Logic.markReviewed(history, Date.now());
+    saveProgress();
+  }
   updateFlashcardTestButtonState();
+  updateFlashcardBatchHint();
 }
 
 function toggleFlashcardReveal() {
@@ -1451,6 +1512,7 @@ function renderReviewListCardView(items) {
     bodyEl.classList.add("hidden");
     reviewListCardDeck = [];
     updateFlashcardTestButtonState();
+    updateFlashcardBatchHint();
     return;
   }
   emptyEl.classList.add("hidden");
@@ -1460,15 +1522,25 @@ function renderReviewListCardView(items) {
   renderFlashcard();
 }
 
+// Swaps in a freshly-picked batch (see currentReviewBatchItems) without
+// resetting reviewListCategory/search/sort - just what's shown in the
+// flashcard deck. The words just finished in the outgoing batch now have a
+// fresh lastReviewedAt, so they naturally sort to the back of the next
+// batch instead of needing anything explicit here to avoid repeating them
+// immediately.
+function loadNextReviewBatch() {
+  reviewListCardIndex = 0;
+  renderReviewListCardView(currentReviewBatchItems());
+}
+
 function renderReviewList() {
   populateReviewSortOptions();
   const cats = Logic.categorizeWords(reviewListPool(), progressStore);
   document.getElementById("reviewlist-incorrect-count").textContent = cats.incorrect.length;
   document.getElementById("reviewlist-learning-count").textContent = cats.learning.length;
 
-  const items = currentReviewListItems();
-  if (reviewListViewMode === "list") renderReviewListListView(items);
-  else renderReviewListCardView(items);
+  if (reviewListViewMode === "list") renderReviewListListView(currentReviewListItems());
+  else renderReviewListCardView(currentReviewBatchItems());
 }
 
 // A word only actually counts as "reviewed" once its card has been shown
@@ -1599,6 +1671,8 @@ document.getElementById("flashcard-next-btn").addEventListener("click", () => {
   if (reviewListCardIndex < reviewListCardDeck.length - 1) {
     reviewListCardIndex += 1;
     renderFlashcard();
+  } else {
+    loadNextReviewBatch();
   }
 });
 document.getElementById("flashcard-test-btn").addEventListener("click", startReviewDeckTest);
@@ -1629,7 +1703,22 @@ const FLASHCARD_SWIPE_OUT_MS = 180;
   function goTo(delta) {
     const lastIndex = reviewListCardDeck.length - 1;
     const target = reviewListCardIndex + delta;
-    if (target < 0 || target > lastIndex) {
+    // Swiping forward past the last card of a batch loads the next one
+    // (same as tapping the "下一批 →" button - see loadNextReviewBatch);
+    // swiping backward past the first card of a batch just snaps back,
+    // there is no "previous batch" to go to.
+    if (target > lastIndex) {
+      el.style.transform = "translateX(-520px) rotate(-18deg)";
+      el.style.opacity = "0";
+      setTimeout(() => {
+        el.classList.add("dragging");
+        resetTransform();
+        loadNextReviewBatch();
+        requestAnimationFrame(() => el.classList.remove("dragging"));
+      }, FLASHCARD_SWIPE_OUT_MS);
+      return;
+    }
+    if (target < 0) {
       resetTransform();
       return;
     }

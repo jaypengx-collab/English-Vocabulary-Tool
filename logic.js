@@ -204,6 +204,14 @@
       firstSeen: 0,
       lastSeen: 0,
       lastResult: undefined,
+      // Last time this word was engaged with in ANY way - a quiz attempt
+      // (see recordAttempt below) or just being shown in 複習's flashcard
+      // browsing view (see markReviewed) - never mind whether the answer
+      // was right. Distinct from lastSeen (quiz attempts only, and used for
+      // review-priority/state purposes) - this exists purely to drive
+      // selectReviewBatch, so a large backlog surfaces neglected words
+      // first instead of the same front-of-the-list words every session.
+      lastReviewedAt: 0,
       // Legacy fields from earlier schema versions, kept only so old
       // stored data doesn't break migration; not used by any logic below.
       box: 0,
@@ -302,6 +310,7 @@
     }
     history.lastResult = correct ? "correct" : "incorrect";
     history.lastSeen = timestamp;
+    history.lastReviewedAt = timestamp;
     if (!history.firstSeen) history.firstSeen = timestamp;
     if (opts.level != null) history.level = opts.level;
     if (opts.length != null) history.length = opts.length;
@@ -326,6 +335,16 @@
       ? list.slice(list.length - CONFIG.maxRecentAttempts)
       : list;
 
+    return history;
+  }
+
+  // Records the lighter-weight "just looked at this in 複習's flashcard
+  // view" engagement, in place - no attempt/correctness involved (browsing
+  // a card isn't being tested on it), just a timestamp so selectReviewBatch
+  // can stop re-surfacing it every session. A real quiz attempt already
+  // updates the same field via recordAttempt above.
+  function markReviewed(history, timestamp) {
+    history.lastReviewedAt = typeof timestamp === "number" ? timestamp : Date.now();
     return history;
   }
 
@@ -504,6 +523,28 @@
       else learning.push(w);
     }
     return { unseen: unseen, incorrect: incorrect, learning: learning, memorized: memorized };
+  }
+
+  // Picks up to `size` words from `words`, ordered so the ones LEAST
+  // recently engaged with (see lastReviewedAt - either a quiz attempt or a
+  // flashcard view, whichever happened last) come first, with a random
+  // tiebreak among equal timestamps (overwhelmingly words never reviewed at
+  // all yet, which all sit at 0). This is what makes 複習's flashcard view
+  // usable with a large backlog: instead of the same few hundred words in
+  // the same order every session, each session surfaces whichever words
+  // have gone the longest untouched, so a big backlog naturally spreads
+  // itself across as many sessions as it takes - no manual bookkeeping, and
+  // (since lastReviewedAt lives on the synced history entry, not separate
+  // per-device state) the same rotation continues on any device the
+  // learner's progress is synced to.
+  function selectReviewBatch(words, historyStore, size, random) {
+    const shuffled = shuffle(words, random);
+    const withTimestamp = shuffled.map((w) => ({
+      w: w,
+      lastReviewedAt: (historyFor(historyStore, w.word) || {}).lastReviewedAt || 0,
+    }));
+    withTimestamp.sort((a, b) => a.lastReviewedAt - b.lastReviewedAt);
+    return withTimestamp.slice(0, Math.max(0, size)).map((x) => x.w);
   }
 
   // Orders candidates for a bucket. "new" words have no history to rank
@@ -772,6 +813,7 @@
     migrateProgressStore: migrateProgressStore,
     computeImprovementTrend: computeImprovementTrend,
     recordAttempt: recordAttempt,
+    markReviewed: markReviewed,
     classifyState: classifyState,
     recentWrongAnswersOf: recentWrongAnswersOf,
     diffChars: diffChars,
@@ -780,6 +822,7 @@
     relativeResponseTime: relativeResponseTime,
     reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
+    selectReviewBatch: selectReviewBatch,
     computeQuestionTargets: computeQuestionTargets,
     computeAutoBalanceRatio: computeAutoBalanceRatio,
     computeAutoBalanceRatioForPool: computeAutoBalanceRatioForPool,
