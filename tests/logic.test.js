@@ -716,31 +716,52 @@ test("selectReviewBatch randomizes order among words with the same lastReviewedA
 
 /* ================= Predicting difficulty of never-attempted words ================= */
 
-test("computeErrorRateBaseline is null with no attempted words at all", () => {
-  assert.equal(L.computeErrorRateBaseline({}), null);
+test("bigramsOf splits a word into consecutive letter pairs", () => {
+  assert.deepEqual(L.bigramsOf("quiet"), ["qu", "ui", "ie", "et"]);
+  assert.deepEqual(L.bigramsOf("a"), []);
 });
 
-test("computeErrorRateBaseline falls back to a flat average below the min-sample threshold, regardless of length", () => {
+test("bigramSimilarity is 1 for identical spelling, 0 for no shared letter-pairs, and in between for partial overlap", () => {
+  assert.equal(L.bigramSimilarity("cat", "cat"), 1);
+  assert.equal(L.bigramSimilarity("cat", "dog"), 0);
+  // quiet=[qu,ui,ie,et], quiz=[qu,ui,iz] - share "qu","ui" (2 of a 5-bigram union)
+  assert.ok(Math.abs(L.bigramSimilarity("quiet", "quiz") - 0.4) < 1e-9);
+});
+
+test("hasDoubledLetter finds an immediately-repeated letter, ignoring words without one", () => {
+  assert.equal(L.hasDoubledLetter("occurred"), true);
+  assert.equal(L.hasDoubledLetter("necessary"), true);
+  assert.equal(L.hasDoubledLetter("cat"), false);
+  assert.equal(L.hasDoubledLetter(""), false);
+});
+
+test("computeDifficultyBaseline is null with no attempted words at all", () => {
+  assert.equal(L.computeDifficultyBaseline({}), null);
+});
+
+test("computeDifficultyBaseline falls back to a flat average below the min-sample threshold, regardless of length", () => {
   const historyStore = {};
   const rows = [
-    { word: "a", length: 2, attempts: 4, incorrect: 1 }, // 25% error
-    { word: "b", length: 10, attempts: 4, incorrect: 3 }, // 75% error
+    { word: "ab", length: 2, attempts: 4, incorrect: 1, level: 4 }, // 25% error
+    { word: "abcdefghij", length: 10, attempts: 4, incorrect: 3, level: 4 }, // 75% error
   ];
   for (const r of rows) {
-    const h = L.createEmptyWordHistory(r.word, 4, r.length);
+    const h = L.createEmptyWordHistory(r.word, r.level, r.length);
     h.attempts = r.attempts;
     h.incorrect = r.incorrect;
     h.correct = r.attempts - r.incorrect;
     historyStore[r.word] = h;
   }
-  const baseline = L.computeErrorRateBaseline(historyStore);
+  const baseline = L.computeDifficultyBaseline(historyStore);
   assert.ok(baseline);
   const expectedFlat = (0.25 + 0.75) / 2;
-  assert.ok(Math.abs(baseline.predict(2) - expectedFlat) < 1e-9);
-  assert.ok(Math.abs(baseline.predict(10) - expectedFlat) < 1e-9);
+  // Both rows share the same level, so the level-group average equals the
+  // overall average and its shrunk deviation is exactly 0 either way.
+  assert.ok(Math.abs(baseline.predict("ab", 4) - expectedFlat) < 1e-9);
+  assert.ok(Math.abs(baseline.predict("abcdefghij", 4) - expectedFlat) < 1e-9);
 });
 
-test("computeErrorRateBaseline predicts a higher error rate for longer words once there's enough data to fit a real trend", () => {
+test("computeDifficultyBaseline predicts a higher error rate for longer words once there's enough data to fit a real trend", () => {
   const historyStore = {};
   for (let len = 3; len <= 14; len++) {
     const word = "w".repeat(len);
@@ -751,58 +772,122 @@ test("computeErrorRateBaseline predicts a higher error rate for longer words onc
     h.correct = 10 - h.incorrect;
     historyStore[word] = h;
   }
-  const baseline = L.computeErrorRateBaseline(historyStore);
-  assert.ok(baseline.predict(14) > baseline.predict(4));
+  const baseline = L.computeDifficultyBaseline(historyStore);
+  assert.ok(baseline.predict("w".repeat(14), 4) > baseline.predict("w".repeat(4), 4));
 });
 
-test("computeLetterTroubleRates is null below the minimum mistake count", () => {
+test("computeDifficultyBaseline predicts a higher error rate for a curriculum level this user actually struggles with more", () => {
   const historyStore = {};
-  const h = L.createEmptyWordHistory("cat", 4, 3);
-  h.attempts = 1;
-  h.incorrect = 1;
-  h.recentAttempts = [{ correct: false, answer: "cta", timestamp: 1000 }];
-  historyStore.cat = h;
-  assert.equal(L.computeLetterTroubleRates(historyStore), null);
+  // 3 easy-level words always right, 3 hard-level words always wrong -
+  // enough samples per group for the shrinkage factor to trust the gap,
+  // but too few total points (6 < minSamplesForLengthTrend) to also fit a
+  // length trend, isolating the level effect being tested here.
+  for (let i = 0; i < 3; i++) {
+    const easyWord = "ez" + i;
+    const h = L.createEmptyWordHistory(easyWord, 4, easyWord.length);
+    h.attempts = 1; h.correct = 1; h.incorrect = 0;
+    historyStore[easyWord] = h;
+  }
+  for (let i = 0; i < 3; i++) {
+    const hardWord = "hd" + i;
+    const h = L.createEmptyWordHistory(hardWord, 6, hardWord.length);
+    h.attempts = 1; h.correct = 0; h.incorrect = 1;
+    historyStore[hardWord] = h;
+  }
+  const baseline = L.computeDifficultyBaseline(historyStore);
+  assert.ok(baseline.predict("newword", 6) > baseline.predict("newword", 4));
 });
 
-test("computeLetterTroubleRates gives a consistently-dropped letter a high trouble rate and other letters a low one", () => {
+test("computeDifficultyBaseline shrinks a level's deviation toward the average when that level has barely any data, unlike a well-sampled level with the same observed gap", () => {
   const historyStore = {};
-  const secondLetters = "bcdefghijklmnop".split(""); // 15 distinct words - meets the minimum mistake count
-  for (const letter of secondLetters) {
-    const word = "x" + letter;
-    const h = L.createEmptyWordHistory(word, 4, 2);
-    h.attempts = 1;
-    h.incorrect = 1;
-    h.recentAttempts = [{ correct: false, answer: letter, timestamp: 1000 }]; // always drops the leading "x"
-    historyStore[word] = h;
+  // Level 6: only 1 sample, 100% wrong. Level 5: 20 samples, 100% wrong.
+  // Both observe the identical (extreme) local error rate, but the
+  // single-sample level should barely move away from the overall average
+  // while the well-sampled one moves close to its full observed rate.
+  // Every entry is forced to the same length (6) so there's no length
+  // trend to fit either (identical x values make the regression
+  // denominator 0), isolating the level effect being tested here.
+  const sparse = L.createEmptyWordHistory("sparse", 6, 6);
+  sparse.attempts = 1; sparse.correct = 0; sparse.incorrect = 1;
+  historyStore.sparse = sparse;
+  for (let i = 0; i < 20; i++) {
+    const w = "rich" + i;
+    const h = L.createEmptyWordHistory(w, 5, 6);
+    h.attempts = 1; h.correct = 0; h.incorrect = 1;
+    historyStore[w] = h;
   }
-  const rates = L.computeLetterTroubleRates(historyStore);
-  assert.ok(rates);
-  assert.equal(rates.x, 1, "x is the missed letter in every single mistake");
-  for (const letter of secondLetters) {
-    assert.equal(rates[letter], 0, `${letter} is typed correctly every time, so should never register as risky`);
+  // A few correct words too, so the overall average isn't just 1.0 (which
+  // would make every deviation collapse to 0 regardless of shrinkage).
+  for (let i = 0; i < 5; i++) {
+    const w = "ok" + i;
+    const h = L.createEmptyWordHistory(w, 4, 6);
+    h.attempts = 1; h.correct = 1; h.incorrect = 0;
+    historyStore[w] = h;
   }
+  const baseline = L.computeDifficultyBaseline(historyStore);
+  const overallAvg = 21 / 26; // 1 sparse wrong + 20 rich wrong + 5 ok right, all out of 26
+  const sparseGap = Math.abs(baseline.predict("xxxxxx", 6) - overallAvg);
+  const richGap = Math.abs(baseline.predict("xxxxxx", 5) - overallAvg);
+  assert.ok(sparseGap < richGap, `a 1-sample level should sit closer to the average than a 20-sample level with the same observed rate (sparseGap=${sparseGap}, richGap=${richGap})`);
 });
 
-test("predictWordDifficulty falls back to the length baseline alone when there's no letter-trouble model yet", () => {
+test("computeDifficultyBaseline predicts a higher error rate for words with a doubled letter once there's enough data in both groups", () => {
+  const historyStore = {};
+  // Every entry forced to the same length (8) so there's no length trend
+  // to fit (identical x values make the regression denominator 0),
+  // isolating the doubled-letter effect being tested here. "accurate"
+  // deliberately excluded from the single-letter group - it contains "cc"
+  // and would otherwise get bucketed as doubled by the code regardless of
+  // which list it's typed into here.
+  const doubled = ["occurred", "necessary", "possess", "recommend"];
+  const single = ["absolute", "abstract", "academic", "adequate"];
+  for (const w of doubled) {
+    const h = L.createEmptyWordHistory(w, 4, 8);
+    h.attempts = 1; h.correct = 0; h.incorrect = 1;
+    historyStore[w] = h;
+  }
+  for (const w of single) {
+    const h = L.createEmptyWordHistory(w, 4, 8);
+    h.attempts = 1; h.correct = 1; h.incorrect = 0;
+    historyStore[w] = h;
+  }
+  const baseline = L.computeDifficultyBaseline(historyStore);
+  assert.ok(baseline.predict("committee", 4) > baseline.predict("elephant", 4));
+});
+
+test("computeInterferenceModel is null below the minimum struggling-word count", () => {
+  const historyStore = {};
+  for (const w of ["light", "might"]) { // only 2, below minStruggleWordsForInterference (3)
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  assert.equal(L.computeInterferenceModel(historyStore), null);
+});
+
+test("computeInterferenceModel scores a word orthographically similar to the user's struggling words higher than a dissimilar one", () => {
+  const historyStore = {};
+  for (const w of ["light", "might", "right"]) {
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  const model = L.computeInterferenceModel(historyStore);
+  assert.ok(model);
+  assert.ok(model.risk("fight") > model.risk("orange"), "\"fight\" shares -ight with every struggling word; \"orange\" shares nothing");
+});
+
+test("predictWordDifficulty falls back to the baseline alone when there's no interference model yet", () => {
   const baseline = { predict: () => 0.3 };
-  assert.equal(L.predictWordDifficulty("anything", baseline, null), 0.3);
+  assert.equal(L.predictWordDifficulty("anything", 4, baseline, null), 0.3);
 });
 
-test("predictWordDifficulty blends the length baseline and letter-trouble signal using CONFIG's own weights", () => {
+test("predictWordDifficulty blends the baseline and interference signal using CONFIG's own weights", () => {
   const baseline = { predict: () => 0.2 };
-  const letterTroubleRates = { a: 1, b: 1 }; // "ab" is maximally risky by letters
-  const risk = L.predictWordDifficulty("ab", baseline, letterTroubleRates);
-  const expected = 0.2 * L.CONFIG.difficultyLengthWeight + 1 * L.CONFIG.difficultyLetterWeight;
+  const interferenceModel = { risk: () => 1 };
+  const risk = L.predictWordDifficulty("word", 4, baseline, interferenceModel);
+  const expected = 0.2 * L.CONFIG.difficultyBaselineWeight + 1 * L.CONFIG.difficultyInterferenceWeight;
   assert.ok(Math.abs(risk - expected) < 1e-9);
-});
-
-test("predictWordDifficulty scores a word full of this user's risky letters higher than a word full of safe ones", () => {
-  const baseline = { predict: () => 0.1 };
-  const letterTroubleRates = { x: 0.9, y: 0.9, z: 0, w: 0 };
-  const riskyWordScore = L.predictWordDifficulty("xy", baseline, letterTroubleRates);
-  const safeWordScore = L.predictWordDifficulty("zw", baseline, letterTroubleRates);
-  assert.ok(riskyWordScore > safeWordScore);
 });
 
 test("rankNewWordsByPredictedDifficulty falls back to a plain shuffle (still a full, non-duplicated permutation) with no attempted-word data at all", () => {
@@ -812,33 +897,28 @@ test("rankNewWordsByPredictedDifficulty falls back to a plain shuffle (still a f
   assert.equal(new Set(ranked.map((w) => w.word)).size, 10);
 });
 
-test("rankNewWordsByPredictedDifficulty surfaces a predicted-harder word first far more often than a predicted-easier one, but not every single time", () => {
+test("rankNewWordsByPredictedDifficulty surfaces a word similar to the user's struggling words first far more often than a dissimilar one, but not every single time", () => {
   const historyStore = {};
-  // Enough mistake history (all centered on consistently dropping "z") to
-  // make computeLetterTroubleRates kick in.
-  const secondLetters = "bcdefghijklmnop".split("");
-  for (const letter of secondLetters) {
-    const word = "z" + letter;
-    const h = L.createEmptyWordHistory(word, 4, 2);
-    h.attempts = 1;
-    h.incorrect = 1;
-    h.recentAttempts = [{ correct: false, answer: letter, timestamp: 1000 }];
-    historyStore[word] = h;
+  // Struggling (interference-eligible) but error-rate-neutral, so this
+  // scenario isolates the interference signal from the baseline one.
+  for (const w of ["light", "might", "right"]) {
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 0; h.correct = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
   }
-  const hardWord = makeWord("zzzz", 4); // all "z" - this user's risky letter
-  const easyWord = makeWord("qqqq", 4); // all "q" - never seen, so neutral
+  const hardWord = makeWord("fight", 4); // shares "-ight" with every struggling word
+  const easyWord = makeWord("orange", 4); // shares nothing
   const pool = [hardWord, easyWord];
 
   // One generator reused across all trials (not reseeded per trial): a
   // freshly-seeded LCG's consecutive draws are correlated for small
-  // sequential seeds, which would otherwise skew a test this sensitive
-  // (same reasoning as the weightedShuffle test above).
+  // sequential seeds, which would otherwise skew a test this sensitive.
   const rnd = seededRandom(42);
   let hardFirstCount = 0;
   const trials = 300;
   for (let i = 0; i < trials; i++) {
     const ranked = L.rankNewWordsByPredictedDifficulty(pool, historyStore, rnd);
-    if (ranked[0].word === "zzzz") hardFirstCount += 1;
+    if (ranked[0].word === "fight") hardFirstCount += 1;
   }
   const rate = hardFirstCount / trials;
   assert.ok(rate > 0.6, `predicted-harder word should lead the majority of the time (rate=${rate})`);

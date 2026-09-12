@@ -112,22 +112,31 @@
 
     // ---- Predicting difficulty of never-attempted words (see
     // rankNewWordsByPredictedDifficulty) ----
-    // Below this many total past mistakes (across every word ever gotten
-    // wrong), computeLetterTroubleRates returns null instead of a fitted
-    // per-letter model - a handful of typos isn't enough to tell a genuine
-    // personal pattern (e.g. "I keep dropping doubled letters") from
-    // ordinary noise, and a model built on too little data would rank new
-    // words on essentially arbitrary grounds while looking authoritative.
-    minMistakesForLetterTroubleModel: 15,
-    // How much of a new word's predicted difficulty comes from its
-    // length/level-based baseline error rate vs. its personalized
-    // letter-trouble score, once there's enough mistake history to compute
-    // the latter at all (see predictWordDifficulty). The baseline is
-    // trusted more: it is built from many more data points (every attempt
-    // on every word) than any one word's handful of constituent letters
-    // can be individually.
-    difficultyLengthWeight: 0.6,
-    difficultyLetterWeight: 0.4,
+    // Shrinkage constant for the level/doubled-letter group effects in
+    // computeDifficultyBaseline (empirical-Bayes style): a group's observed
+    // deviation from the overall average error rate is scaled by
+    // n/(n+K) before being trusted, so a group seen only once or twice
+    // contributes almost nothing (avoiding the earlier per-letter model's
+    // mistake of treating a handful of data points as a real pattern),
+    // while a group with lots of data counts nearly at face value.
+    difficultyShrinkageK: 6,
+    // Minimum attempted words containing a doubled letter (or lacking one)
+    // before that group's error-rate deviation is used at all - below this,
+    // even a shrunk deviation is still too noisy to bother computing.
+    minSamplesForDoubledLetterEffect: 4,
+    // Minimum words currently in "incorrect" state before
+    // computeInterferenceModel bothers comparing new words against them -
+    // similarity to a single struggling word is a coincidence, not a
+    // pattern, until there are a few to compare against.
+    minStruggleWordsForInterference: 3,
+    // How much of a new word's predicted difficulty comes from the
+    // objective baseline (length + curriculum level + orthographic
+    // irregularity - see computeDifficultyBaseline) vs. how similar it
+    // looks to words this learner is already struggling with (see
+    // computeInterferenceModel), once there's enough data for the latter
+    // at all (see predictWordDifficulty).
+    difficultyBaselineWeight: 0.6,
+    difficultyInterferenceWeight: 0.4,
   };
 
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -550,96 +559,178 @@
   }
 
   /* ---------- Predicting difficulty of never-attempted ("new") words ----------
-     Two independent signals, blended into one predicted "chance you'll get
-     this particular never-tried word wrong": a length/level-driven
-     baseline (reliable from day one, but generic - "long words are
-     harder" applies to everyone) and a personalized per-letter "trouble"
-     signal mined from this specific learner's own past mistakes (which
-     letters THEY tend to drop or swap, not people in general). Neither
-     claims to be a real model of English orthography - both are cheap,
-     defensible proxies built entirely from data already in progressStore,
-     nothing external. */
+     Two independent signals grounded in how word memorization is actually
+     understood to work, not a single fragile heuristic:
 
-  // Length-driven "expected error rate" - same regression technique as
-  // computeResponseTimeBaseline, but fitting (length -> incorrect/attempts)
-  // instead of (length -> response time). Returns null with no attempted
-  // words at all; falls back to one flat average error rate below
-  // CONFIG.minSamplesForLengthTrend samples, same reasoning as that
-  // function's own fallback.
-  function computeErrorRateBaseline(historyStore) {
-    const store = historyStore || {};
-    const points = [];
-    for (const key of Object.keys(store)) {
-      const h = store[key];
-      if (h && h.attempts > 0 && typeof h.length === "number" && h.length > 0) {
-        points.push({ x: h.length, y: (h.incorrect || 0) / h.attempts });
-      }
-    }
-    if (!points.length) return null;
-    const overallAvg = clamp(average(points.map((p) => p.y)), 0, 1);
-    if (points.length < CONFIG.minSamplesForLengthTrend) {
-      return { predict: () => overallAvg };
-    }
-    const fit = linearRegression(points);
-    if (!fit) return { predict: () => overallAvg };
-    return { predict: (length) => clamp(fit.intercept + fit.slope * (length || 0), 0, 1) };
+     1. computeDifficultyBaseline - an OBJECTIVE difficulty estimate from
+        properties of the word itself: length (more letters means more
+        chances to slip - a serial-recall effect, not folklore), curriculum
+        level (this vocabulary list is already tiered roughly by frequency,
+        and word frequency is one of the most robust predictors of recall
+        accuracy in the vocabulary-acquisition literature - rarer words are
+        genuinely harder to encode and retain), and whether the word
+        contains a doubled letter (a well-documented spelling trouble spot
+        for learners - duplicated letters get dropped or added because nothing
+        in the pronunciation cues the doubling). Level/doubled-letter effects
+        are shrunk toward the overall average based on sample size (see
+        CONFIG.difficultyShrinkageK) so a group seen only once or twice can't
+        swing the estimate - the earlier design's mistake was trusting a
+        26-way split (one bucket per letter) built from a handful of
+        mistakes; this only ever splits into 2-3 buckets, each with far more
+        data to actually estimate from.
+
+     2. computeInterferenceModel - a PERSONALIZED signal grounded in
+        interference theory (a well-replicated finding in verbal-learning
+        research: items that look alike compete with each other in memory,
+        so a word orthographically similar to one you already keep getting
+        wrong is disproportionately likely to trip you up too, regardless of
+        which specific letters are involved). Measured as bigram-overlap
+        similarity to this learner's own currently-incorrect words, not a
+        single-letter miss tally - so it reflects actual shared spelling
+        patterns between two words, not a coincidence of one letter
+        appearing in both.
+
+     Both are cheap, defensible proxies built entirely from data already in
+     progressStore, nothing external - and both degrade gracefully (return
+     null / a neutral score) rather than pretending confidence they don't
+     have. */
+
+  // Consecutive-letter bigrams of a word, e.g. "quiet" -> ["qu","ui","ie","et"].
+  function bigramsOf(word) {
+    const w = (word || "").toLowerCase();
+    const grams = [];
+    for (let i = 0; i < w.length - 1; i++) grams.push(w.slice(i, i + 2));
+    return grams;
   }
 
-  // Per-letter (a-z) "trouble rate": how often a letter turned up as one of
-  // the MISSED letters (see diffChars) across every incorrect attempt this
-  // user has ever made, relative to how often that letter appears at all
-  // in the correct spelling of every word they've attempted - normalizing
-  // by how common the letter is in the first place, so an ordinary letter
-  // like "e" needs a genuinely high miss rate (not just a high raw count)
-  // to register. Returns null below
-  // CONFIG.minMistakesForLetterTroubleModel total mistakes - too little
-  // data yet to tell a real personal pattern from noise.
-  function computeLetterTroubleRates(historyStore) {
+  // Jaccard similarity (intersection over union) between two words' bigram
+  // sets - a standard, simple measure of orthographic similarity (the same
+  // idea behind fuzzy-matching/spelling-suggestion tools): 1 for identical
+  // spelling, 0 for nothing in common, scaling smoothly in between for
+  // words that share some but not all of their letter-pairs.
+  function bigramSimilarity(wordA, wordB) {
+    const a = new Set(bigramsOf(wordA));
+    const b = new Set(bigramsOf(wordB));
+    if (!a.size || !b.size) return 0;
+    let intersection = 0;
+    for (const g of a) if (b.has(g)) intersection += 1;
+    const union = a.size + b.size - intersection;
+    return union > 0 ? intersection / union : 0;
+  }
+
+  // Whether a word contains any letter immediately repeated (e.g.
+  // "necessary", "occurred") - a well-documented spelling trouble spot,
+  // since nothing in how the word sounds cues the doubling.
+  function hasDoubledLetter(word) {
+    const w = (word || "").toLowerCase();
+    for (let i = 1; i < w.length; i++) {
+      if (w[i] === w[i - 1] && w[i] >= "a" && w[i] <= "z") return true;
+    }
+    return false;
+  }
+
+  // Empirical-Bayes-style shrinkage: scales an observed group's deviation
+  // from the overall average toward 0 based on how much data that group
+  // actually has (n/(n+K)), so a group with just one or two samples barely
+  // moves the estimate while a well-sampled group counts almost at face
+  // value. Shared by both the level and doubled-letter group effects below.
+  function shrunkDeviation(groupErrorRate, groupCount, overallAvg, k) {
+    const trust = groupCount / (groupCount + k);
+    return (groupErrorRate - overallAvg) * trust;
+  }
+
+  // Objective "expected error rate" for a word from properties anyone could
+  // observe about it (not this learner's personal history beyond what
+  // calibrates the model): a length trend (same regression technique as
+  // computeResponseTimeBaseline), plus shrunk group effects for curriculum
+  // level and doubled letters. Returns null with no attempted words at all.
+  function computeDifficultyBaseline(historyStore) {
     const store = historyStore || {};
-    const missedCounts = {};
-    const totalCounts = {};
-    let totalMistakes = 0;
+    const lengthPoints = [];
+    const byLevel = {};
+    const byDoubled = { yes: [], no: [] };
 
     for (const key of Object.keys(store)) {
       const h = store[key];
-      if (!h || !h.word || !h.attempts) continue;
-      for (const ch of h.word.toLowerCase()) {
-        if (ch >= "a" && ch <= "z") totalCounts[ch] = (totalCounts[ch] || 0) + 1;
+      if (!h || !h.attempts) continue;
+      const errorRate = (h.incorrect || 0) / h.attempts;
+      if (typeof h.length === "number" && h.length > 0) lengthPoints.push({ x: h.length, y: errorRate });
+      if (h.level != null) {
+        (byLevel[h.level] = byLevel[h.level] || []).push(errorRate);
       }
-      for (const a of h.recentAttempts || []) {
-        if (a.correct || !a.answer) continue;
-        totalMistakes += 1;
-        const ops = diffChars(a.answer, h.word);
-        for (const op of ops) {
-          if (op.match) continue;
-          const ch = op.char.toLowerCase();
-          if (ch >= "a" && ch <= "z") missedCounts[ch] = (missedCounts[ch] || 0) + 1;
+      if (h.word) (hasDoubledLetter(h.word) ? byDoubled.yes : byDoubled.no).push(errorRate);
+    }
+
+    if (!lengthPoints.length) return null;
+    const overallAvg = clamp(average(lengthPoints.map((p) => p.y)), 0, 1);
+
+    let lengthPredict;
+    if (lengthPoints.length < CONFIG.minSamplesForLengthTrend) {
+      lengthPredict = () => overallAvg;
+    } else {
+      const fit = linearRegression(lengthPoints);
+      lengthPredict = fit ? (length) => clamp(fit.intercept + fit.slope * (length || 0), 0, 1) : () => overallAvg;
+    }
+
+    const levelDeviation = {};
+    for (const level of Object.keys(byLevel)) {
+      const rates = byLevel[level];
+      levelDeviation[level] = shrunkDeviation(average(rates), rates.length, overallAvg, CONFIG.difficultyShrinkageK);
+    }
+
+    let doubledDeviation = 0;
+    if (byDoubled.yes.length >= CONFIG.minSamplesForDoubledLetterEffect && byDoubled.no.length >= CONFIG.minSamplesForDoubledLetterEffect) {
+      doubledDeviation = shrunkDeviation(average(byDoubled.yes), byDoubled.yes.length, overallAvg, CONFIG.difficultyShrinkageK);
+    }
+
+    return {
+      predict: (word, level) => {
+        const w = word || "";
+        let risk = lengthPredict(w.length);
+        if (level != null && levelDeviation[level] != null) risk += levelDeviation[level];
+        if (doubledDeviation && hasDoubledLetter(w)) risk += doubledDeviation;
+        return clamp(risk, 0, 1);
+      },
+    };
+  }
+
+  // How similar a candidate word is to the words this learner is currently
+  // getting wrong (see categorizeWords's "incorrect" bucket) - the highest
+  // bigram similarity to any one struggling word, since interference from a
+  // single close look-alike is what actually drives confusion (not a
+  // diffuse average across every struggling word, most of which won't
+  // resemble the candidate at all). Returns null below
+  // CONFIG.minStruggleWordsForInterference words - similarity to only one or
+  // two struggling words is too easily a coincidence to act on.
+  function computeInterferenceModel(historyStore) {
+    const store = historyStore || {};
+    const strugglingWords = [];
+    for (const key of Object.keys(store)) {
+      const h = store[key];
+      if (h && h.word && h.lastResult === "incorrect") strugglingWords.push(h.word);
+    }
+    if (strugglingWords.length < CONFIG.minStruggleWordsForInterference) return null;
+    return {
+      risk: (word) => {
+        let best = 0;
+        for (const struggling of strugglingWords) {
+          const sim = bigramSimilarity(word, struggling);
+          if (sim > best) best = sim;
         }
-      }
-    }
-
-    if (totalMistakes < CONFIG.minMistakesForLetterTroubleModel) return null;
-
-    const rates = {};
-    for (const ch of Object.keys(totalCounts)) {
-      rates[ch] = totalCounts[ch] > 0 ? (missedCounts[ch] || 0) / totalCounts[ch] : 0;
-    }
-    return rates;
+        return best;
+      },
+    };
   }
 
   // One 0..1-ish predicted difficulty for a single never-yet-attempted
-  // word: the length baseline alone when there's no letter-trouble model
-  // yet (or the word has no a-z letters at all), otherwise a weighted
-  // blend of both signals (see CONFIG.difficultyLengthWeight/
-  // difficultyLetterWeight).
-  function predictWordDifficulty(word, errorRateBaseline, letterTroubleRates) {
-    const w = (word || "").toLowerCase();
-    const lengthRisk = errorRateBaseline ? errorRateBaseline.predict(w.length) : 0.15;
-    if (!letterTroubleRates) return lengthRisk;
-    const letters = w.split("").filter((ch) => ch >= "a" && ch <= "z");
-    if (!letters.length) return lengthRisk;
-    const letterRisk = letters.reduce((acc, ch) => acc + (letterTroubleRates[ch] || 0), 0) / letters.length;
-    return clamp(lengthRisk * CONFIG.difficultyLengthWeight + letterRisk * CONFIG.difficultyLetterWeight, 0, 1);
+  // word: the objective baseline alone when there's no interference model
+  // yet, otherwise a weighted blend of both signals (see
+  // CONFIG.difficultyBaselineWeight/difficultyInterferenceWeight).
+  function predictWordDifficulty(word, level, baseline, interferenceModel) {
+    const baseRisk = baseline ? baseline.predict(word, level) : 0.15;
+    if (!interferenceModel) return baseRisk;
+    const interferenceRisk = interferenceModel.risk(word);
+    return clamp(baseRisk * CONFIG.difficultyBaselineWeight + interferenceRisk * CONFIG.difficultyInterferenceWeight, 0, 1);
   }
 
   // Orders never-attempted words so ones predicted MORE likely to trip
@@ -650,10 +741,10 @@
   // slot every round. Falls back to a plain shuffle when there's no
   // attempted-word data at all yet to predict from.
   function rankNewWordsByPredictedDifficulty(words, historyStore, random) {
-    const errorRateBaseline = computeErrorRateBaseline(historyStore);
-    const letterTroubleRates = computeLetterTroubleRates(historyStore);
-    if (!errorRateBaseline && !letterTroubleRates) return shuffle(words, random);
-    const weights = words.map((w) => 0.5 + predictWordDifficulty(w.word, errorRateBaseline, letterTroubleRates) * 2);
+    const baseline = computeDifficultyBaseline(historyStore);
+    const interferenceModel = computeInterferenceModel(historyStore);
+    if (!baseline && !interferenceModel) return shuffle(words, random);
+    const weights = words.map((w) => 0.5 + predictWordDifficulty(w.word, w.level, baseline, interferenceModel) * 2);
     return weightedShuffle(words, weights, random);
   }
 
@@ -988,8 +1079,11 @@
     computeResponseTimeBaseline: computeResponseTimeBaseline,
     relativeResponseTime: relativeResponseTime,
     reviewPriorityWeight: reviewPriorityWeight,
-    computeErrorRateBaseline: computeErrorRateBaseline,
-    computeLetterTroubleRates: computeLetterTroubleRates,
+    bigramsOf: bigramsOf,
+    bigramSimilarity: bigramSimilarity,
+    hasDoubledLetter: hasDoubledLetter,
+    computeDifficultyBaseline: computeDifficultyBaseline,
+    computeInterferenceModel: computeInterferenceModel,
     predictWordDifficulty: predictWordDifficulty,
     rankNewWordsByPredictedDifficulty: rankNewWordsByPredictedDifficulty,
     categorizeWords: categorizeWords,
