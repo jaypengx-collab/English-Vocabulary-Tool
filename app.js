@@ -1212,11 +1212,15 @@ function sortReviewListItems(items, mode) {
       break;
     case "slow":
     default:
-      // Slowest (relative to their own history) first, matching the same
-      // "needs more practice" priority the quiz's own question selection
-      // uses (see logic.js's reviewPriorityWeight); words with no timing
-      // data yet sort last.
-      arr.sort((a, b) => (b.detail.avgCorrectResponseMs ?? -1) - (a.detail.avgCorrectResponseMs ?? -1));
+      // Slowest RELATIVE TO THE EXPECTED TIME FOR ITS OWN LENGTH first
+      // (see logic.js's relativeResponseTime/computeResponseTimeBaseline),
+      // matching the same priority the quiz's own question selection uses
+      // (reviewPriorityWeight) - NOT sorted by raw avgCorrectResponseMs,
+      // which would just put every long word at the top regardless of how
+      // well it's actually known (more characters simply takes longer to
+      // type, independent of memorization). Words with no timing data yet
+      // sort last.
+      arr.sort((a, b) => (b.detail.relativeResponseTime ?? -1) - (a.detail.relativeResponseTime ?? -1));
   }
   return arr;
 }
@@ -1283,11 +1287,16 @@ function renderReviewList() {
   const pool = reviewListPool();
   const cats = Logic.categorizeWords(pool, progressStore);
   const search = reviewListSearch.trim().toLowerCase();
+  // Computed once per render (not per word - see computeWordDetail's own
+  // comment) so every word's "反應時間" sort position compares it against
+  // the expected time for ITS OWN length, not one flat average dominated
+  // by whatever length is most common - see relativeResponseTime.
+  const responseTimeBaseline = Logic.computeResponseTimeBaseline(progressStore);
 
   const toItems = (words) => words
     .filter((w) => !search || w.word.toLowerCase().includes(search))
     .map((w) => ({
-      detail: Logic.computeWordDetail(w, progressStore),
+      detail: Logic.computeWordDetail(w, progressStore, responseTimeBaseline),
       lastSeen: (progressStore[w.word.toLowerCase()] || {}).lastSeen || 0,
     }));
 
@@ -1432,7 +1441,7 @@ function renderProgress() {
     else trendText = "近期反應時間大致穩定。";
   }
   document.getElementById("progress-trend-hint").textContent =
-    `${trendText} 「答錯待複習」與「學習中」的單字裡，測驗會優先挑選比你「平均反應時間」慢的加強練習。`;
+    `${trendText} 「答錯待複習」與「學習中」的單字裡，測驗會優先挑選比同長度單字預期速度慢的加強練習（長單字本來就需要多打幾個字母，不會只因為比較長就被當成不熟）。`;
 
   const levelsHTML = [4, 5, 6]
     .map((lvl) => {
@@ -1533,7 +1542,7 @@ function renderWordTable() {
     .join("");
 
   container.innerHTML = `
-    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。測驗會依你的平均反應時間，優先挑選比較慢、比較久沒複習的單字。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
+    <p class="hint">連續答對 2 次即為「已熟記」，答錯一次就會重新歸零並回到「答錯待複習」。測驗會依你在「同樣長度單字」中的反應時間，優先挑選比較慢、比較久沒複習的單字（不會只因為單字比較長就被當成比較慢）。滑鼠移到「最近錯誤」欄可看更多次錯誤紀錄。</p>
     <div class="word-table-wrap">
       <table class="word-table">
         <thead><tr><th>單字</th><th>等級</th><th>對／錯</th><th title="連續答對次數">連續正確</th><th>平均反應時間</th><th>最近錯誤</th><th>狀態</th></tr></thead>

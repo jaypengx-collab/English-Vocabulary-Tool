@@ -53,15 +53,27 @@
     defaultQuestionRatio: { new: 0.8, incorrect: 0.1, learning: 0.1 },
 
     // Review-selection priority weighting, by response time: a word's own
-    // average correct-response time is compared against the user's
-    // OVERALL average across all their words (their general typing/
-    // reaction pace) - slower-than-their-own-overall-average words get a
-    // higher chance of filling a review slot, faster ones a lower chance.
-    // This only affects how often a word gets picked for practice, never
-    // whether it counts as Memorized (that's streak-only, see above), so
-    // it never mislabels a word just for naturally taking longer to type.
+    // average correct-response time is compared against the EXPECTED time
+    // for a word of ITS OWN length (see computeResponseTimeBaseline) -
+    // slower-than-expected-for-its-length words get a higher chance of
+    // filling a review slot, faster-than-expected ones a lower chance.
+    // Deliberately NOT compared against one flat overall average across
+    // every word regardless of length - a flat average is dominated by
+    // whatever length is most common, so a genuinely long word (more
+    // characters to type, nothing to do with how well it's memorized)
+    // would always read as "slow" and a short one always "fast", no matter
+    // how well either is actually known. This only affects how often a
+    // word gets picked for practice, never whether it counts as Memorized
+    // (that's streak-only, see above), so it never mislabels a word just
+    // for naturally taking longer to type.
     timeWeightMin: 0.3,
     timeWeightMax: 3,
+    // Below this many (length, avgCorrectResponseMs) data points across the
+    // whole store, there isn't enough signal to trust a fitted length trend
+    // (see computeResponseTimeBaseline) - fall back to one flat expected
+    // time (the plain overall average) for every length instead of
+    // overfitting a line to a handful of points.
+    minSamplesForLengthTrend: 8,
     // A word tested moments ago is temporarily de-prioritized (even if
     // it's slow/weak) so the same word or two don't monopolize every
     // round; its weight recovers back to normal over this many days.
@@ -120,6 +132,29 @@
     let sq = 0;
     for (const v of arr) sq += (v - m) * (v - m);
     return Math.sqrt(sq / arr.length);
+  }
+
+  // Ordinary least-squares fit of y = intercept + slope*x over `points`
+  // ({x, y}[]) - used to model "expected response time as a function of
+  // word length" (see computeResponseTimeBaseline). Returns null when
+  // there's no meaningful slope to fit (fewer than 2 points, or every
+  // point shares the same x - e.g. every attempted word so far happens to
+  // be the same length), letting the caller fall back to a flat average.
+  function linearRegression(points) {
+    const n = points.length;
+    if (n < 2) return null;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (const p of points) {
+      sumX += p.x;
+      sumY += p.y;
+      sumXY += p.x * p.y;
+      sumXX += p.x * p.x;
+    }
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    return { slope: slope, intercept: intercept };
   }
 
   function shuffle(arr, random) {
@@ -376,6 +411,10 @@
   // The user's own overall average correct-response time, across every
   // word they have timing data for - their general pace. Recomputed from
   // current data each time (not stored), so it always reflects reality.
+  // Purely informational (the Progress screen's "平均反應時間" stat) -
+  // NOT used for review-priority weighting, since a flat average mixes
+  // together words of every length (see computeResponseTimeBaseline for
+  // the length-aware figure that IS used for that).
   function computeGlobalAverageResponseMs(historyStore) {
     const store = historyStore || {};
     const times = [];
@@ -386,19 +425,63 @@
     return times.length ? average(times) : null;
   }
 
+  // Models "expected correct-response time as a function of word length"
+  // from every word with timing data, via a simple linear fit (longer
+  // words legitimately take longer to type - this bakes that in rather
+  // than pretending every word "should" take the same time). Returns null
+  // when there's no timing data at all yet. With too few data points to
+  // trust a fitted trend (see CONFIG.minSamplesForLengthTrend), falls back
+  // to one flat expected time for every length - the plain overall
+  // average, same number computeGlobalAverageResponseMs reports - rather
+  // than overfitting a line to a handful of points. A fitted NEGATIVE
+  // slope (longer words predicted faster) is clamped to 0: that shape is
+  // almost certainly noise this early, not a real effect, and left
+  // uncorrected would perversely flag long words as needing LESS practice.
+  function computeResponseTimeBaseline(historyStore) {
+    const store = historyStore || {};
+    const points = [];
+    for (const key of Object.keys(store)) {
+      const h = store[key];
+      if (h && typeof h.avgCorrectResponseMs === "number" && typeof h.length === "number" && h.length > 0) {
+        points.push({ x: h.length, y: h.avgCorrectResponseMs });
+      }
+    }
+    if (!points.length) return null;
+
+    const overallAvg = average(points.map((p) => p.y));
+    if (points.length < CONFIG.minSamplesForLengthTrend) {
+      return { predict: () => overallAvg };
+    }
+    const fit = linearRegression(points);
+    if (!fit) return { predict: () => overallAvg };
+    const slope = Math.max(0, fit.slope);
+    return { predict: (length) => Math.max(1, fit.intercept + slope * (length || 0)) };
+  }
+
+  // A word's own average correct-response time relative to what's expected
+  // for a word of ITS length (see computeResponseTimeBaseline) - 1.0 means
+  // "right on pace for a word this long", >1 slower than expected, <1
+  // faster. Returns null when there's nothing to compare (no baseline yet,
+  // or this word itself has no timing data).
+  function relativeResponseTime(history, baseline) {
+    const h = history || {};
+    if (!baseline || typeof h.avgCorrectResponseMs !== "number") return null;
+    const expected = baseline.predict(h.length);
+    if (!expected || expected <= 0) return null;
+    return h.avgCorrectResponseMs / expected;
+  }
+
   // How urgently a word deserves a review slot: higher for words that run
-  // slower than the user's own overall average pace, with a temporary
-  // dampener right after the word was last tested so the same one or two
-  // words don't monopolize every round. Purely a *weight* for
-  // weightedShuffle, not a hard cutoff - a fast word still has some
+  // slower than expected FOR THEIR OWN LENGTH (see relativeResponseTime),
+  // with a temporary dampener right after the word was last tested so the
+  // same one or two words don't monopolize every round. Purely a *weight*
+  // for weightedShuffle, not a hard cutoff - a fast word still has some
   // chance, a slow one isn't guaranteed.
-  function reviewPriorityWeight(history, globalAvgMs, now) {
+  function reviewPriorityWeight(history, baseline, now) {
     const h = history || {};
     let weight = 1; // neutral until there's enough timing data to compare
-    if (globalAvgMs != null && globalAvgMs > 0 && typeof h.avgCorrectResponseMs === "number") {
-      const ratio = h.avgCorrectResponseMs / globalAvgMs;
-      weight = clamp(ratio, CONFIG.timeWeightMin, CONFIG.timeWeightMax);
-    }
+    const rel = relativeResponseTime(h, baseline);
+    if (rel != null) weight = clamp(rel, CONFIG.timeWeightMin, CONFIG.timeWeightMax);
     const lastSeen = h.lastSeen || 0;
     const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
     const recencyFactor = clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
@@ -428,11 +511,11 @@
   // ordered by a WEIGHTED random draw (see reviewPriorityWeight) rather
   // than a deterministic sort, so slower/staler words are picked far more
   // often but not guaranteed the exact same word every round.
-  function rankCandidates(words, historyStore, random, category, now, globalAvgMs) {
+  function rankCandidates(words, historyStore, random, category, now, baseline) {
     if (category === "new") return shuffle(words, random);
     const withMeta = words.map((w) => {
       const h = historyFor(historyStore, w.word) || {};
-      return { w: w, weight: reviewPriorityWeight(h, globalAvgMs, now) };
+      return { w: w, weight: reviewPriorityWeight(h, baseline, now) };
     });
     return weightedShuffle(withMeta.map((x) => x.w), withMeta.map((x) => x.weight), random);
   }
@@ -582,7 +665,7 @@
     if (size <= 0) return [];
 
     const { unseen, incorrect, learning } = categorizeWords(pool, historyStore);
-    const globalAvgMs = computeGlobalAverageResponseMs(historyStore);
+    const baseline = computeResponseTimeBaseline(historyStore);
     const targets = computeQuestionTargets(size, ratio);
     const categoryWords = { new: unseen, incorrect: incorrect, learning: learning };
 
@@ -591,7 +674,7 @@
 
     const buckets = order.map((key) => ({
       key: key,
-      ranked: rankCandidates(categoryWords[key], historyStore, random, key, now, globalAvgMs),
+      ranked: rankCandidates(categoryWords[key], historyStore, random, key, now, baseline),
       target: targets[key],
     }));
 
@@ -650,7 +733,13 @@
     };
   }
 
-  function computeWordDetail(w, historyStore) {
+  // `baseline` (see computeResponseTimeBaseline) is optional - pass it when
+  // the caller needs relativeResponseTime (e.g. sorting the 複習 lists by
+  // "which words are slow FOR THEIR LENGTH"); omit it and that field is
+  // just null, same as before this existed. Callers rendering many words
+  // at once should compute the baseline ONCE up front and pass the same
+  // one into every call here, rather than recomputing it per word.
+  function computeWordDetail(w, historyStore, baseline) {
     const h = historyFor(historyStore, w.word);
     const state = classifyState(h);
     return {
@@ -667,6 +756,7 @@
       lastWrongAnswer: h ? h.lastWrongAnswer : null,
       recentWrongAnswers: recentWrongAnswersOf(h),
       state: state,
+      relativeResponseTime: baseline ? relativeResponseTime(h, baseline) : null,
     };
   }
 
@@ -686,6 +776,8 @@
     recentWrongAnswersOf: recentWrongAnswersOf,
     diffChars: diffChars,
     computeGlobalAverageResponseMs: computeGlobalAverageResponseMs,
+    computeResponseTimeBaseline: computeResponseTimeBaseline,
+    relativeResponseTime: relativeResponseTime,
     reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
     computeQuestionTargets: computeQuestionTargets,

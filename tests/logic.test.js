@@ -187,27 +187,143 @@ test("computeGlobalAverageResponseMs is null when there is no timing data yet", 
   assert.equal(L.computeGlobalAverageResponseMs({}), null);
 });
 
-test("reviewPriorityWeight gives a word slower than the user's overall average a higher weight than one faster than average", () => {
+test("reviewPriorityWeight gives a word slower than its length-expected baseline a higher weight than one faster than expected", () => {
   const now = 1000000;
-  const globalAvg = 1000;
+  const baseline = { predict: () => 1000 }; // flat baseline, same as the old flat-average shape
   const slowWord = { avgCorrectResponseMs: 2000, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
   const fastWord = { avgCorrectResponseMs: 500, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
-  const slowWeight = L.reviewPriorityWeight(slowWord, globalAvg, now);
-  const fastWeight = L.reviewPriorityWeight(fastWord, globalAvg, now);
-  assert.ok(slowWeight > fastWeight, `slower-than-average word should weigh more (slow=${slowWeight}, fast=${fastWeight})`);
+  const slowWeight = L.reviewPriorityWeight(slowWord, baseline, now);
+  const fastWeight = L.reviewPriorityWeight(fastWord, baseline, now);
+  assert.ok(slowWeight > fastWeight, `slower-than-expected word should weigh more (slow=${slowWeight}, fast=${fastWeight})`);
 });
 
 test("reviewPriorityWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
   const now = 1000000;
+  const baseline = { predict: () => 1000 };
   const wordInfo = { avgCorrectResponseMs: 2000 };
-  const justTested = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 1000 }), 1000, now);
-  const testedDaysAgo = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 10 * 24 * 60 * 60 * 1000 }), 1000, now);
+  const justTested = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 1000 }), baseline, now);
+  const testedDaysAgo = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 10 * 24 * 60 * 60 * 1000 }), baseline, now);
   assert.ok(testedDaysAgo > justTested, "a word tested moments ago should be less eager to repeat than the same word tested days ago");
 });
 
 test("reviewPriorityWeight falls back to a neutral weight when there's no timing data yet for the word", () => {
-  const w = L.reviewPriorityWeight({ lastSeen: 0 }, 1000, 1000000);
+  const w = L.reviewPriorityWeight({ lastSeen: 0 }, { predict: () => 1000 }, 1000000);
   assert.ok(w > 0);
+});
+
+test("reviewPriorityWeight falls back to a neutral weight when there's no baseline at all yet (nobody has any timing data)", () => {
+  const w = L.reviewPriorityWeight({ avgCorrectResponseMs: 5000, lastSeen: 500000 }, null, 1000000);
+  assert.ok(w > 0);
+});
+
+/* ================= Length-aware response time baseline (fixes long words always reading as "slow") ================= */
+
+test("computeResponseTimeBaseline is null with no timing data at all", () => {
+  assert.equal(L.computeResponseTimeBaseline({}), null);
+});
+
+test("computeResponseTimeBaseline falls back to a flat overall average below the min-sample threshold, regardless of length", () => {
+  const historyStore = {};
+  // Only 3 points (well under CONFIG.minSamplesForLengthTrend) - too few to
+  // trust a fitted length trend, so every length should predict the same
+  // flat average.
+  const words = [
+    { word: "a", length: 2, ms: 800 },
+    { word: "extraordinary", length: 13, ms: 2200 },
+    { word: "cat", length: 3, ms: 1200 },
+  ];
+  for (const w of words) {
+    const h = L.createEmptyWordHistory(w.word, 4, w.length);
+    L.recordAttempt(h, { correct: true, responseMs: w.ms, timestamp: 1000, level: 4, length: w.length });
+    historyStore[w.word] = h;
+  }
+  const baseline = L.computeResponseTimeBaseline(historyStore);
+  assert.ok(baseline);
+  const expectedFlatAvg = (800 + 2200 + 1200) / 3;
+  assert.equal(baseline.predict(2), expectedFlatAvg);
+  assert.equal(baseline.predict(13), expectedFlatAvg);
+});
+
+test("computeResponseTimeBaseline predicts a longer expected time for longer words once there's enough data to fit a trend", () => {
+  const historyStore = {};
+  // 10 synthetic words with response time scaling cleanly with length
+  // (500ms base + 150ms per character) - well over minSamplesForLengthTrend
+  // (8), so this should fit a real length trend instead of falling back to
+  // one flat average.
+  for (let len = 3; len <= 12; len++) {
+    const word = "w".repeat(len);
+    const h = L.createEmptyWordHistory(word, 4, len);
+    const ms = 500 + len * 150;
+    L.recordAttempt(h, { correct: true, responseMs: ms, timestamp: 1000, level: 4, length: len });
+    historyStore[word] = h;
+  }
+  const baseline = L.computeResponseTimeBaseline(historyStore);
+  assert.ok(baseline);
+  assert.ok(
+    baseline.predict(12) > baseline.predict(4),
+    "a longer word should have a higher expected time than a shorter one once a trend is fitted"
+  );
+});
+
+test("relativeResponseTime: a long word exactly on pace for its own length is neutral (~1), not flagged 'slow' just for being long", () => {
+  const historyStore = {};
+  // A range of word lengths, each answered in EXACTLY the length-scaled
+  // "expected" time (500 + 150*len) - nobody here is actually struggling,
+  // long or short, they're all equally well-practiced relative to their
+  // own word's length.
+  for (let len = 3; len <= 14; len++) {
+    const word = "w".repeat(len);
+    const h = L.createEmptyWordHistory(word, 4, len);
+    const ms = 500 + len * 150;
+    L.recordAttempt(h, { correct: true, responseMs: ms, timestamp: 1000, level: 4, length: len });
+    historyStore[word] = h;
+  }
+  const baseline = L.computeResponseTimeBaseline(historyStore);
+  const longWordHistory = historyStore["w".repeat(14)];
+  const shortWordHistory = historyStore["w".repeat(3)];
+  const longRel = L.relativeResponseTime(longWordHistory, baseline);
+  const shortRel = L.relativeResponseTime(shortWordHistory, baseline);
+  assert.ok(Math.abs(longRel - 1) < 0.05, `a long word right on pace for its length should be ~1, got ${longRel}`);
+  assert.ok(Math.abs(shortRel - 1) < 0.05, `a short word right on pace for its length should be ~1, got ${shortRel}`);
+});
+
+test("selectQuestions no longer systematically favors long words for review just because they take longer to type", () => {
+  const historyStore = {};
+  const now = 1000;
+  // 20 "learning" words of varying length, EVERY ONE answered exactly on
+  // pace for its own length (500 + 150*len) - none of them is actually
+  // weaker than any other. Under the old flat-global-average comparison,
+  // every long word here would still be pegged as "slower than average"
+  // (since the average is dominated by shorter/mid-length words) and long
+  // words would dominate weighted selection; under the length-aware
+  // baseline none of them should be systematically favored over another.
+  const words = [];
+  for (let len = 3; len <= 22; len++) {
+    const word = "w".repeat(len);
+    words.push({ word: word, pos: "n.", level: 4, zh: "測試" });
+    const h = L.createEmptyWordHistory(word, 4, len);
+    L.recordAttempt(h, { correct: true, responseMs: 500 + len * 150, timestamp: now, level: 4, length: len });
+    historyStore[word.toLowerCase()] = h;
+  }
+  // Draw many independent weighted rankings and tally how often the
+  // longest word (len=22) lands ahead of the shortest (len=3).
+  let longFirstCount = 0;
+  const trials = 300;
+  for (let seed = 1; seed <= trials; seed++) {
+    const ranked = L.selectQuestions({
+      pool: words,
+      historyStore,
+      size: words.length,
+      ratio: { new: 0, incorrect: 0, learning: 1 },
+      random: seededRandom(seed),
+      now,
+    });
+    const longIdx = ranked.findIndex((w) => w.word === "w".repeat(22));
+    const shortIdx = ranked.findIndex((w) => w.word === "w".repeat(3));
+    if (longIdx < shortIdx) longFirstCount += 1;
+  }
+  const rate = longFirstCount / trials;
+  assert.ok(rate > 0.35 && rate < 0.65, `the long word should not dominate the front of the list just for being long (rate=${rate})`);
 });
 
 test("weightedShuffle picks the higher-weight item first far more often than chance, but not every single time", () => {
