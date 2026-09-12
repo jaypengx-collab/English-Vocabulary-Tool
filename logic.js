@@ -75,6 +75,28 @@
     // Progress (most recent first), so a word's mistake pattern (e.g.
     // consistently swapping two letters) is visible before a review.
     maxRecentWrongAnswersShown: 3,
+
+    // ---- Auto-balance mode (see computeAutoBalanceRatio) ----
+    // The review "backlog" (incorrect + learning word count) at which auto
+    // mode treats review pressure as maxed out - a backlog at or above this
+    // gets the ceiling review share below; a backlog of 0 always gets 0%
+    // review (nothing to review yet, so it's 100% new words) regardless of
+    // this number.
+    autoBalanceBacklogSaturation: 40,
+    // Review share never exceeds this even at a saturated backlog - some
+    // new words always keep trickling in rather than the round ever going
+    // 100% review, so the backlog itself keeps shrinking relative to total
+    // vocabulary instead of just holding steady.
+    autoBalanceMaxReviewShare: 0.75,
+    // Review share floor the moment there IS any backlog at all (jumps
+    // straight from 0% at zero backlog to at least this much) - a single
+    // incorrect word still deserves noticeable practice time, not a
+    // rounding-error sliver of a huge round.
+    autoBalanceMinReviewShare: 0.15,
+    // Within the review share, incorrect words are weighted this many times
+    // more urgently than learning words per-word (still-wrong beats
+    // almost-there) when splitting the share between the two categories.
+    autoBalanceIncorrectWeight: 1.5,
   };
 
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -459,6 +481,63 @@
     return deduped;
   }
 
+  /* ---------- Auto-balance mode: a ratio derived from live word counts ---------- */
+
+  // Turns raw category counts (unseen/incorrect/learning - memorized is
+  // always excluded from selection, same as every other mode) into a
+  // question-mix ratio, the same shape selectQuestions's `ratio` option
+  // expects. Deliberately NOT an equal three-way split ("balance the
+  // number of them" does not mean 33/33/33): a brand-new learner has
+  // hundreds of unseen words and near-zero review backlog, so an equal
+  // split would still bury them in review words they've never even seen
+  // once. Instead the review SHARE (incorrect+learning combined) scales up
+  // smoothly with how large the backlog actually is - small backlog, mostly
+  // new words; large backlog, mostly review - between a floor and a
+  // ceiling so neither ever goes fully 0% or 100%. The incorrect/learning
+  // split within that share leans toward incorrect words (still wrong beats
+  // almost-there), proportioned by how many of each currently exist.
+  function computeAutoBalanceRatio(counts) {
+    const newCount = Math.max(0, counts.new || 0);
+    const incorrectCount = Math.max(0, counts.incorrect || 0);
+    const learningCount = Math.max(0, counts.learning || 0);
+    const backlog = incorrectCount + learningCount;
+
+    if (backlog === 0) return { new: 1, incorrect: 0, learning: 0 };
+
+    const backlogPressure = clamp(backlog / CONFIG.autoBalanceBacklogSaturation, 0, 1);
+    let reviewShare =
+      CONFIG.autoBalanceMinReviewShare +
+      backlogPressure * (CONFIG.autoBalanceMaxReviewShare - CONFIG.autoBalanceMinReviewShare);
+
+    // No new words left to show at all (every word in the selected levels
+    // has been attempted at least once) - the round can only be review.
+    if (newCount === 0) reviewShare = 1;
+
+    const newShare = 1 - reviewShare;
+    const incorrectWeight = incorrectCount * CONFIG.autoBalanceIncorrectWeight;
+    const learningWeight = learningCount;
+    const totalWeight = incorrectWeight + learningWeight;
+    const incorrectShare = totalWeight > 0 ? reviewShare * (incorrectWeight / totalWeight) : 0;
+    const learningShare = totalWeight > 0 ? reviewShare * (learningWeight / totalWeight) : 0;
+
+    return { new: newShare, incorrect: incorrectShare, learning: learningShare };
+  }
+
+  // Convenience wrapper: categorizes `pool` against `historyStore` itself,
+  // so callers (the app's "auto" mode) don't need to call categorizeWords
+  // separately just to get counts. Safe to call on every question/answer
+  // in a round - it's just a counting pass over the pool, no randomness -
+  // which is what lets auto mode re-derive its ratio live as words move
+  // between categories mid-round.
+  function computeAutoBalanceRatioForPool(pool, historyStore) {
+    const cats = categorizeWords(pool, historyStore);
+    return computeAutoBalanceRatio({
+      new: cats.unseen.length,
+      incorrect: cats.incorrect.length,
+      learning: cats.learning.length,
+    });
+  }
+
   /* ---------- Question selection: ratio-driven, one mode ---------- */
 
   // Target counts for each of the three selectable categories, scaled from
@@ -610,6 +689,8 @@
     reviewPriorityWeight: reviewPriorityWeight,
     categorizeWords: categorizeWords,
     computeQuestionTargets: computeQuestionTargets,
+    computeAutoBalanceRatio: computeAutoBalanceRatio,
+    computeAutoBalanceRatioForPool: computeAutoBalanceRatioForPool,
     selectQuestions: selectQuestions,
     computeProgressSummary: computeProgressSummary,
     computeWordDetail: computeWordDetail,

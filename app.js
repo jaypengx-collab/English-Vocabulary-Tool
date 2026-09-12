@@ -48,8 +48,13 @@ let progressStore = loadJSON(PROGRESS_KEY, {});
 // split; a user who wants the old Review Test's 70/30 (no new words) shape
 // just drags the sliders there (or taps the matching preset button) - one
 // mode, one adjustable mix, instead of two fixed modes to pick between.
+// mode: which of the four home-screen "測驗模式" options picks the
+// question-type ratio for a round - "auto" (default) re-derives it live
+// from current word counts (see currentModeRatioFraction), "new"/"review"
+// are the old fixed 80/10/10 and 0/70/30 presets, and "advanced" is the
+// user's own custom wordRatio sliders below.
 let settings = Object.assign(
-  { levels: [4, 5, 6], rate: 0.9, testMinutes: 10, wordRatio: { new: 80, incorrect: 10, learning: 10 } },
+  { levels: [4, 5, 6], rate: 0.9, testMinutes: 10, mode: "auto", wordRatio: { new: 80, incorrect: 10, learning: 10 } },
   loadJSON(SETTINGS_KEY, {})
 );
 
@@ -89,7 +94,48 @@ function applySettingsToUI() {
     document.getElementById(`ratio-${key}`).value = String(value);
     document.getElementById(`ratio-${key}-value`).textContent = `${value}%`;
   });
+  applyModeToUI();
 }
+
+// Reflects settings.mode onto the four mode-chip radios (and their
+// "selected" outline, for browsers without :has() support), shows/hides
+// the advanced ratio-slider panel, and refreshes the auto-mode live
+// preview hint.
+function applyModeToUI() {
+  document.querySelectorAll('#mode-picker input[name="test-mode"]').forEach((el) => {
+    const checked = el.value === settings.mode;
+    el.checked = checked;
+    el.closest(".mode-chip").classList.toggle("selected", checked);
+  });
+  document.getElementById("ratio-advanced-panel").classList.toggle("hidden", settings.mode !== "advanced");
+  updateAutoRatioHint();
+}
+
+// Live preview of what "auto" mode would currently pick, so the effect of
+// switching level checkboxes / practicing a round is visible on the home
+// screen itself, not just once a round starts. A no-op (blank) outside
+// auto mode or before vocab has loaded.
+function updateAutoRatioHint() {
+  const hintEl = document.getElementById("auto-ratio-hint");
+  if (!hintEl) return;
+  if (settings.mode !== "auto" || !VOCAB.length) {
+    hintEl.textContent = "";
+    return;
+  }
+  const levels = selectedLevels();
+  const pool = wordsForLevels(levels.length ? levels : [4, 5, 6]);
+  const ratio = Logic.computeAutoBalanceRatioForPool(pool, progressStore);
+  hintEl.textContent =
+    `目前自動配比：新字 ${Math.round(ratio.new * 100)}%・答錯待複習 ${Math.round(ratio.incorrect * 100)}%・學習中 ${Math.round(ratio.learning * 100)}%（測驗過程中會即時調整）`;
+}
+
+document.getElementById("mode-picker").addEventListener("change", (e) => {
+  const radio = e.target.closest('input[name="test-mode"]');
+  if (!radio) return;
+  settings.mode = radio.value;
+  applyModeToUI();
+  saveSettings();
+});
 
 // The read/write surface sync.js (and, in principle, anything else outside
 // this file) uses to get at progressStore/settings - both are plain
@@ -611,6 +657,7 @@ document.getElementById("level-picker").addEventListener("change", (e) => {
     e.target.checked = true; // must keep at least one level selected
   }
   updateLevelHint();
+  updateAutoRatioHint();
 });
 
 document.getElementById("rate-select").addEventListener("input", (e) => {
@@ -751,7 +798,11 @@ function speedNote(priorAvg, elapsedMs) {
   return null;
 }
 
-function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
+// `state` is the word's classifyState() result AFTER this attempt was
+// recorded - only meaningful/shown when correct (a wrong answer always
+// classifies as "incorrect", which isn't worth a badge here since the
+// feedback is already very visibly marked wrong).
+function renderAnswerFeedback(feedbackEl, item, correct, guess, note, state) {
   feedbackEl.classList.remove("hidden", "correct", "wrong");
   feedbackEl.innerHTML = "";
 
@@ -776,11 +827,30 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
   feedbackEl.appendChild(answerWord);
   feedbackEl.appendChild(buildZhBlock(item.zh));
 
+  if (!correct) {
+    // Same letter-by-letter diff shown in Progress/複習 (see
+    // renderWrongAnswerCell/buildDiffHtml) - surfaced immediately after
+    // this answer too, not just later when browsing those tabs, so a
+    // mistake pattern (a swapped letter, a missing double letter) is
+    // visible right when it happens.
+    const diffEl = document.createElement("div");
+    diffEl.className = "answer-diff";
+    diffEl.innerHTML = `拼法對照：${buildDiffHtml(guess, item.word)}`;
+    feedbackEl.appendChild(diffEl);
+  }
+
   if (note) {
     const noteEl = document.createElement("div");
     noteEl.className = `speed-note ${note.cls}`;
     noteEl.textContent = note.text;
     feedbackEl.appendChild(noteEl);
+  }
+
+  if (correct && (state === "learning" || state === "memorized")) {
+    const stateEl = document.createElement("span");
+    stateEl.className = `state-badge ${state} answer-state`;
+    stateEl.textContent = STATE_LABELS[state];
+    feedbackEl.appendChild(stateEl);
   }
 }
 
@@ -788,6 +858,7 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note) {
 
 const vocabTest = {
   list: [],
+  pool: [], // the full level-filtered word pool this round was built from - see rebalanceAutoModeTail
   index: 0,
   answeredCount: 0,
   correctCount: 0,
@@ -798,6 +869,43 @@ const vocabTest = {
   timeLimitMs: 0,
   inProgress: false,
 };
+
+// Fetches (and caches - see loadAudioBuffer) the audio for whatever word
+// comes right after the one currently on screen, so it's already decoded
+// and ready by the time the user gets there instead of only starting the
+// fetch/decode at the moment speak() is called for it. Called both when a
+// question is first shown and again after any mid-round rebalance (auto
+// mode can change which word is "next" - see rebalanceAutoModeTail), so
+// the preload always targets whichever word will actually be asked next.
+function preloadNextAudio() {
+  const next = vocabTest.list[vocabTest.index + 1];
+  if (next) loadAudioBuffer(next.word).catch(() => {});
+}
+
+// Auto mode's live re-balancing: re-derives the new/incorrect/learning
+// ratio from the CURRENT word counts (an answer just recorded may have
+// moved a word between categories - e.g. an incorrect word graduating to
+// learning) and rebuilds the not-yet-reached tail of the round with it,
+// exactly like the sync-reconcile tail-rebuild above but triggered by
+// every single answer instead of only an external sync pull. Everything
+// already presented (up to and including the current word) is left
+// completely alone - only what comes after is subject to change - so
+// results already shown/recorded are never altered, only what's asked next.
+function rebalanceAutoModeTail() {
+  if (settings.mode !== "auto" || !vocabTest.inProgress) return;
+  const pool = vocabTest.pool;
+  if (!pool || !pool.length) return;
+  const presented = new Set(vocabTest.list.slice(0, vocabTest.index + 1).map((w) => w.word.toLowerCase()));
+  const ratio = Logic.computeAutoBalanceRatioForPool(pool, progressStore);
+  const freshTail = Logic.selectQuestions({
+    pool: pool,
+    historyStore: progressStore,
+    size: pool.length,
+    ratio: ratio,
+  }).filter((w) => !presented.has(w.word.toLowerCase()));
+  vocabTest.list = vocabTest.list.slice(0, vocabTest.index + 1).concat(freshTail);
+  preloadNextAudio();
+}
 
 function testTimeUp() {
   return Date.now() - vocabTest.startedAt >= vocabTest.timeLimitMs;
@@ -817,13 +925,33 @@ function updateTestTimeDisplay() {
 // round at all yet) should build a fresh one.
 // Converts settings.wordRatio (0-100 integers summing to 100, the shape
 // the sliders edit directly) to the 0..1 fractions Logic.selectQuestions
-// expects.
-function currentWordRatioFraction() {
+// expects - only used by the "advanced" mode (see currentModeRatioFraction).
+function currentAdvancedRatioFraction() {
   return {
     new: settings.wordRatio.new / 100,
     incorrect: settings.wordRatio.incorrect / 100,
     learning: settings.wordRatio.learning / 100,
   };
+}
+
+// Fixed presets for the "new" (mostly new words) and "review" (no new
+// words) mode chips - the same two ratios the old two-preset buttons used
+// to set the sliders to, now available directly as modes so most users
+// never need to touch the advanced sliders at all.
+const FIXED_MODE_RATIOS = {
+  new: { new: 0.8, incorrect: 0.1, learning: 0.1 },
+  review: { new: 0, incorrect: 0.7, learning: 0.3 },
+};
+
+// The one place that turns settings.mode into the actual ratio passed to
+// Logic.selectQuestions - "auto" is the only mode that depends on `pool`
+// (it re-derives the ratio from current word counts every time it's
+// called, which is what lets it be re-evaluated live mid-round; see
+// rebalanceAutoModeTail).
+function currentModeRatioFraction(pool) {
+  if (settings.mode === "new" || settings.mode === "review") return FIXED_MODE_RATIOS[settings.mode];
+  if (settings.mode === "advanced") return currentAdvancedRatioFraction();
+  return Logic.computeAutoBalanceRatioForPool(pool, progressStore);
 }
 
 document.getElementById("start-test-btn").addEventListener("click", () => {
@@ -845,7 +973,8 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   // never blocking it.
   getAudioContext();
   const pool = wordsForLevels(levels);
-  const ratio = currentWordRatioFraction();
+  vocabTest.pool = pool; // kept for live re-rebalancing mid-round in auto mode (see rebalanceAutoModeTail)
+  const ratio = currentModeRatioFraction(pool);
   // The round is time-boxed (settings.testMinutes), not question-counted -
   // request the WHOLE available pool up front so the list never runs out
   // before the clock does (selectQuestions can't return more than
@@ -892,13 +1021,15 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
     window.VocabSync.reconcileBeforeStarting().then((result) => {
       if (!result || !result.changed || !vocabTest.inProgress) return;
       const presented = new Set(vocabTest.list.slice(0, vocabTest.index + 1).map((w) => w.word.toLowerCase()));
+      const freshPool = wordsForLevels(levels);
       const freshList = Logic.selectQuestions({
-        pool: wordsForLevels(levels),
+        pool: freshPool,
         historyStore: progressStore,
         size: pool.length,
-        ratio: currentWordRatioFraction(),
+        ratio: currentModeRatioFraction(freshPool),
       }).filter((w) => !presented.has(w.word.toLowerCase()));
       vocabTest.list = vocabTest.list.slice(0, vocabTest.index + 1).concat(freshList);
+      preloadNextAudio();
     });
   }
 });
@@ -919,6 +1050,7 @@ function showTestWord() {
 
   vocabTest.wordShownAt = Date.now();
   speak(item.word);
+  preloadNextAudio();
 }
 
 document.getElementById("test-play-btn").addEventListener("click", () => {
@@ -940,7 +1072,7 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
   const correct = guess === item.word.toLowerCase();
   const elapsed = Date.now() - vocabTest.wordShownAt;
 
-  const { priorAvg } = recordResult(item, correct, elapsed, guess);
+  const { history, priorAvg } = recordResult(item, correct, elapsed, guess);
   vocabTest.answered = true;
   vocabTest.answeredCount += 1;
   input.disabled = true;
@@ -948,7 +1080,14 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
   else vocabTest.missed.push(item);
 
   const note = correct ? speedNote(priorAvg, elapsed) : null;
-  renderAnswerFeedback(document.getElementById("test-feedback"), item, correct, guess, note);
+  const state = Logic.classifyState(history);
+  renderAnswerFeedback(document.getElementById("test-feedback"), item, correct, guess, note, state);
+
+  // Re-derives auto mode's ratio from the just-updated word counts and
+  // rebuilds the round's remaining tail with it, then preloads whatever
+  // word that leaves as "next" - see rebalanceAutoModeTail. A no-op in any
+  // other mode.
+  rebalanceAutoModeTail();
 
   const isLast = testTimeUp() || vocabTest.index >= vocabTest.list.length - 1;
   const nextBtn = document.getElementById("test-next-btn");
@@ -1320,12 +1459,21 @@ function renderProgress() {
 // previously typed correctly (per the most recent mistake) highlighted,
 // plus what they actually typed - so "wierd" vs "weird" visually shows
 // the swapped letters instead of just two bare strings.
-function renderWrongAnswerCell(detail) {
-  if (!detail.lastWrongAnswer) return "—";
-  const ops = Logic.diffChars(detail.lastWrongAnswer, detail.word);
-  const correctHtml = ops
+// Correct word's spelling as HTML, with letters the user did NOT type (in
+// order) highlighted - shared by the in-round answer feedback
+// (renderAnswerFeedback) and the Progress/複習 word cards
+// (renderWrongAnswerCell) so "wierd" vs "weird" visually shows the swapped
+// letters in both places, not just one.
+function buildDiffHtml(typed, correctWord) {
+  const ops = Logic.diffChars(typed, correctWord);
+  return ops
     .map((o) => (o.match ? escapeHtml(o.char) : `<span class="diff-miss">${escapeHtml(o.char)}</span>`))
     .join("");
+}
+
+function renderWrongAnswerCell(detail) {
+  if (!detail.lastWrongAnswer) return "—";
+  const correctHtml = buildDiffHtml(detail.lastWrongAnswer, detail.word);
   const title = detail.recentWrongAnswers.length
     ? `最近幾次打錯：${detail.recentWrongAnswers.join("、")}`
     : "";
@@ -1598,7 +1746,7 @@ async function init() {
 
   await loadVocab();
   updateLevelHint();
-  applySettingsToUI();
+  applySettingsToUI(); // also refreshes the auto-mode ratio hint via applyModeToUI
 
   if (window.speechSynthesis) {
     refreshVoices();

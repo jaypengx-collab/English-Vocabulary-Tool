@@ -78,27 +78,54 @@
       </div>
       <p class="hint">拖曳滑桿或點選上方快速選項，決定要練習多久；時間到會自動結束並顯示成績，實際題數依你的作答速度而定，不用自己抓題數。</p>
 
-      <h2>單字類型比例</h2>
-      <p class="hint">拖曳調整這回合「新字／答錯待複習／學習中」單字各佔多少比例，三者總和固定為 100%，拖一個滑桿時另外兩個會自動增減；若某類單字數量不足，系統會自動用其他非 0% 的類別補足，但 0% 的類別永遠不會出現。已熟記（連續答對 2 次）的單字一律不會出現，把機會留給還沒學會的字。</p>
-      <div class="row">
-        <label for="ratio-new">🆕 新字</label>
-        <input type="range" class="ratio-slider" id="ratio-new" min="0" max="100" step="1" value="80" />
-        <span class="ratio-value" id="ratio-new-value">80%</span>
+      <h2>測驗模式</h2>
+      <p class="hint">決定這回合怎麼挑「新字／答錯待複習／學習中」單字出題。已熟記（連續答對 2 次）的單字一律不會出現，把機會留給還沒學會的字。</p>
+      <div class="mode-picker" id="mode-picker">
+        <label class="mode-chip">
+          <input type="radio" name="test-mode" value="auto" checked>
+          <span>⚖️ 自動平衡（預設）</span>
+          <small>依目前答錯／學習中／新字的數量即時調整比例，回合中也會跟著調整。</small>
+        </label>
+        <label class="mode-chip">
+          <input type="radio" name="test-mode" value="new">
+          <span>🆕 新字優先</span>
+          <small>固定 80% 新字、10% 答錯待複習、10% 學習中。</small>
+        </label>
+        <label class="mode-chip">
+          <input type="radio" name="test-mode" value="review">
+          <span>🔁 只複習</span>
+          <small>固定 70% 答錯待複習、30% 學習中，不出新字。</small>
+        </label>
+        <label class="mode-chip">
+          <input type="radio" name="test-mode" value="advanced">
+          <span>🛠️ 進階：自訂比例</span>
+          <small>自己拖曳滑桿決定比例。</small>
+        </label>
       </div>
-      <div class="row">
-        <label for="ratio-incorrect">❌ 答錯待複習</label>
-        <input type="range" class="ratio-slider" id="ratio-incorrect" min="0" max="100" step="1" value="10" />
-        <span class="ratio-value" id="ratio-incorrect-value">10%</span>
-      </div>
-      <div class="row">
-        <label for="ratio-learning">📖 學習中</label>
-        <input type="range" class="ratio-slider" id="ratio-learning" min="0" max="100" step="1" value="10" />
-        <span class="ratio-value" id="ratio-learning-value">10%</span>
-      </div>
-      <div class="row" id="ratio-presets">
-        <button type="button" class="btn secondary small" data-ratio="80,10,10">以新字為主（建議）</button>
-        <button type="button" class="btn secondary small" data-ratio="0,70,30">只複習</button>
-        <button type="button" class="btn secondary small" data-ratio="34,33,33">平均分配</button>
+      <p class="hint" id="auto-ratio-hint"></p>
+
+      <div id="ratio-advanced-panel" class="hidden">
+        <p class="hint">拖曳調整這回合「新字／答錯待複習／學習中」單字各佔多少比例，三者總和固定為 100%，拖一個滑桿時另外兩個會自動增減；若某類單字數量不足，系統會自動用其他非 0% 的類別補足，但 0% 的類別永遠不會出現。</p>
+        <div class="row">
+          <label for="ratio-new">🆕 新字</label>
+          <input type="range" class="ratio-slider" id="ratio-new" min="0" max="100" step="1" value="80" />
+          <span class="ratio-value" id="ratio-new-value">80%</span>
+        </div>
+        <div class="row">
+          <label for="ratio-incorrect">❌ 答錯待複習</label>
+          <input type="range" class="ratio-slider" id="ratio-incorrect" min="0" max="100" step="1" value="10" />
+          <span class="ratio-value" id="ratio-incorrect-value">10%</span>
+        </div>
+        <div class="row">
+          <label for="ratio-learning">📖 學習中</label>
+          <input type="range" class="ratio-slider" id="ratio-learning" min="0" max="100" step="1" value="10" />
+          <span class="ratio-value" id="ratio-learning-value">10%</span>
+        </div>
+        <div class="row" id="ratio-presets">
+          <button type="button" class="btn secondary small" data-ratio="80,10,10">以新字為主</button>
+          <button type="button" class="btn secondary small" data-ratio="0,70,30">只複習</button>
+          <button type="button" class="btn secondary small" data-ratio="34,33,33">平均分配</button>
+        </div>
       </div>
 
       <div class="row actions">
@@ -113,7 +140,7 @@
 
       <div id="test-empty" class="summary hidden">
         <h2>沒有符合條件的單字</h2>
-        <p class="hint">目前選擇的等級範圍＋單字類型比例下沒有可以出題的單字，試試看調整「單字類型比例」滑桿（例如把 0% 的類別調高一點），或回首頁勾選其他等級。</p>
+        <p class="hint">目前選擇的等級範圍＋測驗模式下沒有可以出題的單字，試試看切換「測驗模式」（例如「只複習」但目前沒有待複習的單字時，改選「新字優先」或「自動平衡」），或回首頁勾選其他等級。</p>
         <div class="row actions">
           <button class="btn secondary" id="test-empty-home-btn">回首頁</button>
         </div>

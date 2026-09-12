@@ -391,6 +391,71 @@ test("selectQuestions returns an empty list (not an error) when every ratio slid
   assert.deepEqual(selection, []);
 });
 
+/* ================= Auto-balance mode ratio ================= */
+
+test("computeAutoBalanceRatio is all-new when there is no review backlog at all", () => {
+  const ratio = L.computeAutoBalanceRatio({ new: 300, incorrect: 0, learning: 0 });
+  assert.deepEqual(ratio, { new: 1, incorrect: 0, learning: 0 });
+});
+
+test("computeAutoBalanceRatio is all-review once there are no new words left to introduce", () => {
+  const ratio = L.computeAutoBalanceRatio({ new: 0, incorrect: 10, learning: 5 });
+  assert.equal(ratio.new, 0);
+  assert.ok(ratio.incorrect > 0 && ratio.learning > 0);
+  assert.ok(Math.abs(ratio.incorrect + ratio.learning - 1) < 1e-9);
+});
+
+test("computeAutoBalanceRatio never goes to a flat equal three-way split - review share scales with backlog size, not a fixed target", () => {
+  const smallBacklog = L.computeAutoBalanceRatio({ new: 500, incorrect: 2, learning: 1 });
+  const bigBacklog = L.computeAutoBalanceRatio({ new: 500, incorrect: 200, learning: 100 });
+  assert.ok(smallBacklog.new > 0.8, "a tiny backlog against a huge new-word pool should stay mostly new words");
+  assert.ok(bigBacklog.new < smallBacklog.new, "a much bigger backlog should pull review share up (and new share down)");
+  // Never fully saturates to 0% new even under a very heavy backlog - some
+  // new words should always keep trickling in.
+  assert.ok(bigBacklog.new > 0);
+});
+
+test("computeAutoBalanceRatio leans the review share toward incorrect over learning at equal counts", () => {
+  const ratio = L.computeAutoBalanceRatio({ new: 100, incorrect: 10, learning: 10 });
+  assert.ok(ratio.incorrect > ratio.learning, "still-wrong words should get more of the review share than almost-there words");
+});
+
+test("computeAutoBalanceRatio's three shares always sum to 1 across a range of counts", () => {
+  const cases = [
+    { new: 0, incorrect: 0, learning: 0 },
+    { new: 50, incorrect: 0, learning: 0 },
+    { new: 0, incorrect: 5, learning: 0 },
+    { new: 0, incorrect: 0, learning: 5 },
+    { new: 20, incorrect: 20, learning: 20 },
+    { new: 1000, incorrect: 3, learning: 400 },
+  ];
+  for (const c of cases) {
+    const r = L.computeAutoBalanceRatio(c);
+    assert.ok(Math.abs(r.new + r.incorrect + r.learning - 1) < 1e-9, JSON.stringify(c));
+  }
+});
+
+test("computeAutoBalanceRatioForPool derives counts from a pool + historyStore, matching computeAutoBalanceRatio on those counts", () => {
+  const historyStore = {};
+  const incorrectWords = makePool(10, 4, "bad");
+  const learningWords = makePool(5, 5, "mid");
+  const newWords = makePool(100, 6, "new");
+  for (const w of incorrectWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: false, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  for (const w of learningWords) {
+    const h = L.createEmptyWordHistory(w.word, w.level, w.word.length);
+    L.recordAttempt(h, { correct: true, responseMs: 900, timestamp: 1000, level: w.level, length: w.word.length });
+    historyStore[w.word.toLowerCase()] = h;
+  }
+  const pool = incorrectWords.concat(learningWords, newWords);
+  const fromPool = L.computeAutoBalanceRatioForPool(pool, historyStore);
+  const direct = L.computeAutoBalanceRatio({ new: 100, incorrect: 10, learning: 5 });
+  assert.deepEqual(fromPool, direct);
+});
+
 /* ================= Persistence / migration / backward compatibility ================= */
 
 test("migrateWordEntry upgrades legacy v1 {box,due,correct,wrong,lastSeen} shape without losing progress", () => {
