@@ -110,8 +110,8 @@
     // almost-there) when splitting the share between the two categories.
     autoBalanceIncorrectWeight: 1.5,
 
-    // ---- Predicting difficulty of never-attempted words (see
-    // rankNewWordsByPredictedDifficulty) ----
+    // ---- Predicting word difficulty - one system for new, incorrect, and
+    // learning words alike (see predictWordDifficulty/rankCandidates) ----
     // Shrinkage constant for the level/doubled-letter group effects in
     // computeDifficultyBaseline (empirical-Bayes style): a group's observed
     // deviation from the overall average error rate is scaled by
@@ -125,14 +125,24 @@
     // even a shrunk deviation is still too noisy to bother computing.
     minSamplesForDoubledLetterEffect: 4,
     // Minimum words currently in "incorrect" state before
-    // computeInterferenceModel bothers comparing new words against them -
-    // similarity to a single struggling word is a coincidence, not a
+    // computeInterferenceModel bothers comparing candidate words against
+    // them - similarity to a single struggling word is a coincidence, not a
     // pattern, until there are a few to compare against.
     minStruggleWordsForInterference: 3,
-    // How much of a new word's predicted difficulty comes from the
-    // objective baseline (length + curriculum level + orthographic
-    // irregularity - see computeDifficultyBaseline) vs. how similar it
-    // looks to words this learner is already struggling with (see
+    // Shrinkage constant for blending a word's OWN empirical error rate
+    // (once it's actually been attempted) with the objective baseline (see
+    // predictWordDifficulty) - attempts/(attempts+K) is how much its own
+    // track record is trusted over the baseline prediction. Deliberately
+    // much smaller than difficultyShrinkageK above: a handful of attempts
+    // on THIS specific word is far more informative about it than a
+    // handful of samples in a 2-3-way group bucket is about that group, so
+    // it should earn trust faster.
+    difficultyOwnDataShrinkageK: 3,
+    // How much of a word's predicted difficulty comes from the objective
+    // baseline (length + curriculum level + orthographic irregularity -
+    // see computeDifficultyBaseline - blended with the word's own
+    // empirical error rate once it has one) vs. how similar it looks to
+    // words this learner is already struggling with (see
     // computeInterferenceModel), once there's enough data for the latter
     // at all (see predictWordDifficulty).
     difficultyBaselineWeight: 0.6,
@@ -472,6 +482,56 @@
     return ops;
   }
 
+  // Same LCS backtrack as diffChars, but returns BOTH sides of the diff:
+  // the correct spelling with letters the user never typed marked missed
+  // (identical to diffChars's own result), and what the user actually
+  // typed with the letters that threw the spelling off - extra letters,
+  // or ones swapped out of place - marked wrong. Lets the UI show "this is
+  // what you typed, and THIS specific part of it was the problem" rather
+  // than only ever annotating the correct answer.
+  function diffCharsBoth(typed, correct) {
+    const a = (typed || "").split("");
+    const b = (correct || "").split("");
+    const n = a.length;
+    const m = b.length;
+    const dp = [];
+    for (let i = 0; i <= n; i++) dp.push(new Array(m + 1).fill(0));
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    let i = n;
+    let j = m;
+    const typedOps = [];
+    const correctOps = [];
+    while (i > 0 && j > 0) {
+      if (a[i - 1] === b[j - 1]) {
+        typedOps.push({ char: a[i - 1], match: true });
+        correctOps.push({ char: b[j - 1], match: true });
+        i -= 1;
+        j -= 1;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        typedOps.push({ char: a[i - 1], match: false });
+        i -= 1;
+      } else {
+        correctOps.push({ char: b[j - 1], match: false });
+        j -= 1;
+      }
+    }
+    while (i > 0) {
+      typedOps.push({ char: a[i - 1], match: false });
+      i -= 1;
+    }
+    while (j > 0) {
+      correctOps.push({ char: b[j - 1], match: false });
+      j -= 1;
+    }
+    typedOps.reverse();
+    correctOps.reverse();
+    return { typed: typedOps, correct: correctOps };
+  }
+
   /* ---------- Review-priority weighting (time-based) ---------- */
 
   function historyFor(historyStore, word) {
@@ -541,24 +601,8 @@
     return h.avgCorrectResponseMs / expected;
   }
 
-  // How urgently a word deserves a review slot: higher for words that run
-  // slower than expected FOR THEIR OWN LENGTH (see relativeResponseTime),
-  // with a temporary dampener right after the word was last tested so the
-  // same one or two words don't monopolize every round. Purely a *weight*
-  // for weightedShuffle, not a hard cutoff - a fast word still has some
-  // chance, a slow one isn't guaranteed.
-  function reviewPriorityWeight(history, baseline, now) {
-    const h = history || {};
-    let weight = 1; // neutral until there's enough timing data to compare
-    const rel = relativeResponseTime(h, baseline);
-    if (rel != null) weight = clamp(rel, CONFIG.timeWeightMin, CONFIG.timeWeightMax);
-    const lastSeen = h.lastSeen || 0;
-    const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
-    const recencyFactor = clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
-    return weight * recencyFactor;
-  }
-
-  /* ---------- Predicting difficulty of never-attempted ("new") words ----------
+  /* ---------- Predicting word difficulty - one system for new, incorrect,
+     and learning words alike ----------
      Two independent signals grounded in how word memorization is actually
      understood to work, not a single fragile heuristic:
 
@@ -593,7 +637,16 @@
      Both are cheap, defensible proxies built entirely from data already in
      progressStore, nothing external - and both degrade gracefully (return
      null / a neutral score) rather than pretending confidence they don't
-     have. */
+     have.
+
+     A never-attempted ("new") word has nothing but these two signals to go
+     on. An already-attempted (incorrect/learning) word has something far
+     better available: its OWN observed track record on THIS specific user
+     - so predictWordDifficulty (below) blends that in too, once there's
+     enough of it to trust over the general baseline. This is what makes it
+     one system for new/incorrect/learning alike, not three - a review word
+     isn't "predicted" difficult, its difficulty is directly measured, and
+     that measurement only gets more trusted as more attempts accumulate. */
 
   // Consecutive-letter bigrams of a word, e.g. "quiet" -> ["qu","ui","ie","et"].
   function bigramsOf(word) {
@@ -722,30 +775,64 @@
     };
   }
 
-  // One 0..1-ish predicted difficulty for a single never-yet-attempted
-  // word: the objective baseline alone when there's no interference model
-  // yet, otherwise a weighted blend of both signals (see
-  // CONFIG.difficultyBaselineWeight/difficultyInterferenceWeight).
-  function predictWordDifficulty(word, level, baseline, interferenceModel) {
-    const baseRisk = baseline ? baseline.predict(word, level) : 0.15;
-    if (!interferenceModel) return baseRisk;
+  // One 0..1-ish predicted difficulty for a word, whether it's never been
+  // attempted or has a full history: starts from the objective baseline
+  // (or a neutral 0.15 with no baseline data at all yet), then - if this
+  // word itself has been attempted - blends in its own empirical error
+  // rate via the same empirical-Bayes shrinkage idea used inside the
+  // baseline's own group effects (CONFIG.difficultyOwnDataShrinkageK): a
+  // word tried once and missed shouldn't swing straight to "certain risk",
+  // but as real attempts accumulate on THIS word, its own track record
+  // increasingly dominates the generic prediction. That blended objective
+  // risk is then combined with the interference signal, same as before
+  // (see CONFIG.difficultyBaselineWeight/difficultyInterferenceWeight).
+  function predictWordDifficulty(word, level, history, baseline, interferenceModel) {
+    let objRisk = baseline ? baseline.predict(word, level) : 0.15;
+    if (history && history.attempts) {
+      const ownErrorRate = clamp((history.incorrect || 0) / history.attempts, 0, 1);
+      const trust = history.attempts / (history.attempts + CONFIG.difficultyOwnDataShrinkageK);
+      objRisk = ownErrorRate * trust + objRisk * (1 - trust);
+    }
+    if (!interferenceModel) return objRisk;
     const interferenceRisk = interferenceModel.risk(word);
-    return clamp(baseRisk * CONFIG.difficultyBaselineWeight + interferenceRisk * CONFIG.difficultyInterferenceWeight, 0, 1);
+    return clamp(objRisk * CONFIG.difficultyBaselineWeight + interferenceRisk * CONFIG.difficultyInterferenceWeight, 0, 1);
   }
 
-  // Orders never-attempted words so ones predicted MORE likely to trip
-  // this user up surface more often - a weighted random draw (same
-  // Efraimidis-Spirakis scheme as weightedShuffle/reviewPriorityWeight),
-  // never a rigid sort: a predicted-easy word still has some chance of
-  // coming up early, a predicted-hard one is never guaranteed the same
-  // slot every round. Falls back to a plain shuffle when there's no
-  // attempted-word data at all yet to predict from.
-  function rankNewWordsByPredictedDifficulty(words, historyStore, random) {
-    const baseline = computeDifficultyBaseline(historyStore);
-    const interferenceModel = computeInterferenceModel(historyStore);
-    if (!baseline && !interferenceModel) return shuffle(words, random);
-    const weights = words.map((w) => 0.5 + predictWordDifficulty(w.word, w.level, baseline, interferenceModel) * 2);
-    return weightedShuffle(words, weights, random);
+  // Every model predictWordDifficulty/computeSelectionWeight need, built
+  // once per round from historyStore and shared across new/incorrect/
+  // learning alike (see rankCandidates) rather than each category
+  // recomputing its own copy.
+  function buildPriorityModels(historyStore) {
+    return {
+      difficultyBaseline: computeDifficultyBaseline(historyStore),
+      interferenceModel: computeInterferenceModel(historyStore),
+      responseTimeBaseline: computeResponseTimeBaseline(historyStore),
+    };
+  }
+
+  // Turns a word's predicted difficulty (see predictWordDifficulty) into a
+  // full weightedShuffle weight, the same for new/incorrect/learning words
+  // alike: predicted risk sets the baseline pull, then two multiplicative
+  // adjustments layer on top exactly as they always have for review words -
+  // a slower-than-expected response time (still a meaningful signal beyond
+  // raw correctness: hesitation on a technically-right answer) nudges the
+  // weight up further, and a temporary dampener right after the word was
+  // last tested keeps the same word or two from monopolizing every round.
+  // A never-attempted word simply has no response time or last-seen data,
+  // so both adjustments are no-ops for it - one formula, no per-category
+  // branching required.
+  function computeSelectionWeight(w, history, models, now) {
+    const risk = predictWordDifficulty(w.word, w.level, history, models.difficultyBaseline, models.interferenceModel);
+    let weight = 0.5 + risk * 2;
+
+    const rel = relativeResponseTime(history, models.responseTimeBaseline);
+    if (rel != null) weight *= clamp(rel, CONFIG.timeWeightMin, CONFIG.timeWeightMax);
+
+    const lastSeen = (history && history.lastSeen) || 0;
+    const daysSince = lastSeen ? Math.max(0, (now - lastSeen) / ONE_DAY_MS) : Infinity;
+    weight *= clamp(daysSince / CONFIG.reviewRecencyFullRecoveryDays, 0.15, 1);
+
+    return weight;
   }
 
   /* ---------- Word categorization ---------- */
@@ -797,20 +884,19 @@
     return withTimestamp.slice(0, Math.max(0, size)).map((x) => x.w);
   }
 
-  // Orders candidates for a bucket. "new" words have no history of their
-  // own to rank by directly, but are still weighted by PREDICTED
-  // difficulty (see rankNewWordsByPredictedDifficulty) so words this
-  // learner seems more likely to get wrong surface more often instead of
-  // a flat shuffle treating every never-tried word as equally likely to
-  // trip them up. "incorrect"/"learning" words are ordered by a WEIGHTED
-  // random draw (see reviewPriorityWeight) rather than a deterministic
-  // sort, so slower/staler words are picked far more often but not
-  // guaranteed the exact same word every round.
-  function rankCandidates(words, historyStore, random, category, now, baseline) {
-    if (category === "new") return rankNewWordsByPredictedDifficulty(words, historyStore, random);
+  // Orders a bucket's candidates by predicted difficulty (see
+  // computeSelectionWeight) via a WEIGHTED random draw, never a rigid sort
+  // - a predicted-easy word still has some chance of coming up early, a
+  // predicted-hard one is never guaranteed the same slot every round. The
+  // exact same weighting applies whether `words` is the new/incorrect/
+  // learning bucket - there is no per-category branch here at all, that's
+  // the point (see predictWordDifficulty's own comment). With no data
+  // anywhere yet, every word gets an identical weight, which makes this a
+  // plain uniform shuffle in every way that matters.
+  function rankCandidates(words, historyStore, random, now, models) {
     const withMeta = words.map((w) => {
-      const h = historyFor(historyStore, w.word) || {};
-      return { w: w, weight: reviewPriorityWeight(h, baseline, now) };
+      const h = historyFor(historyStore, w.word);
+      return { w: w, weight: computeSelectionWeight(w, h, models, now) };
     });
     return weightedShuffle(withMeta.map((x) => x.w), withMeta.map((x) => x.weight), random);
   }
@@ -960,7 +1046,7 @@
     if (size <= 0) return [];
 
     const { unseen, incorrect, learning } = categorizeWords(pool, historyStore);
-    const baseline = computeResponseTimeBaseline(historyStore);
+    const models = buildPriorityModels(historyStore);
     const targets = computeQuestionTargets(size, ratio);
     const categoryWords = { new: unseen, incorrect: incorrect, learning: learning };
 
@@ -969,7 +1055,7 @@
 
     const buckets = order.map((key) => ({
       key: key,
-      ranked: rankCandidates(categoryWords[key], historyStore, random, key, now, baseline),
+      ranked: rankCandidates(categoryWords[key], historyStore, random, now, models),
       target: targets[key],
     }));
 
@@ -1075,17 +1161,18 @@
     classifyState: classifyState,
     recentWrongAnswersOf: recentWrongAnswersOf,
     diffChars: diffChars,
+    diffCharsBoth: diffCharsBoth,
     computeGlobalAverageResponseMs: computeGlobalAverageResponseMs,
     computeResponseTimeBaseline: computeResponseTimeBaseline,
     relativeResponseTime: relativeResponseTime,
-    reviewPriorityWeight: reviewPriorityWeight,
     bigramsOf: bigramsOf,
     bigramSimilarity: bigramSimilarity,
     hasDoubledLetter: hasDoubledLetter,
     computeDifficultyBaseline: computeDifficultyBaseline,
     computeInterferenceModel: computeInterferenceModel,
     predictWordDifficulty: predictWordDifficulty,
-    rankNewWordsByPredictedDifficulty: rankNewWordsByPredictedDifficulty,
+    buildPriorityModels: buildPriorityModels,
+    computeSelectionWeight: computeSelectionWeight,
     categorizeWords: categorizeWords,
     filterMarked: filterMarked,
     selectReviewBatch: selectReviewBatch,

@@ -170,6 +170,27 @@ test("diffChars marks every letter matched for an exact match", () => {
   assert.ok(ops.every((o) => o.match));
 });
 
+test("diffCharsBoth flags the mismatched letters on BOTH sides for a one-letter swap, not just the correct spelling", () => {
+  const { typed, correct } = L.diffCharsBoth("wierd", "weird");
+  assert.equal(typed.map((o) => o.char).join(""), "wierd", "typed-side is aligned against what the user actually typed");
+  assert.equal(correct.map((o) => o.char).join(""), "weird", "correct-side is aligned against the correct spelling");
+  assert.ok(typed.some((o) => !o.match), "the misplaced letter in what was typed should be flagged");
+  assert.ok(correct.some((o) => !o.match), "the letter missing from its expected spot should be flagged");
+});
+
+test("diffCharsBoth flags a trailing extra letter as unmatched on the typed side only", () => {
+  const { typed, correct } = L.diffCharsBoth("catss", "cats");
+  assert.equal(typed.map((o) => o.char).join(""), "catss");
+  assert.equal(correct.map((o) => o.char).join(""), "cats");
+  assert.ok(correct.every((o) => o.match), "every correct letter was in fact typed");
+  assert.equal(typed.filter((o) => !o.match).length, 1, "only the one extra trailing letter should be flagged");
+});
+
+test("diffCharsBoth marks every letter matched on both sides for an exact match", () => {
+  const { typed, correct } = L.diffCharsBoth("weird", "weird");
+  assert.ok(typed.every((o) => o.match) && correct.every((o) => o.match));
+});
+
 /* ================= Review-priority weighting (time-based) ================= */
 
 test("computeGlobalAverageResponseMs averages avgCorrectResponseMs across all words with timing data", () => {
@@ -187,33 +208,46 @@ test("computeGlobalAverageResponseMs is null when there is no timing data yet", 
   assert.equal(L.computeGlobalAverageResponseMs({}), null);
 });
 
-test("reviewPriorityWeight gives a word slower than its length-expected baseline a higher weight than one faster than expected", () => {
+test("computeSelectionWeight gives a word slower than its length-expected baseline a higher weight than one faster than expected", () => {
   const now = 1000000;
-  const baseline = { predict: () => 1000 }; // flat baseline, same as the old flat-average shape
-  const slowWord = { avgCorrectResponseMs: 2000, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
-  const fastWord = { avgCorrectResponseMs: 500, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
-  const slowWeight = L.reviewPriorityWeight(slowWord, baseline, now);
-  const fastWeight = L.reviewPriorityWeight(fastWord, baseline, now);
+  const models = { difficultyBaseline: null, interferenceModel: null, responseTimeBaseline: { predict: () => 1000 } };
+  const slowWord = { word: "slow", level: 4 };
+  const fastWord = { word: "fast", level: 4 };
+  const slowHistory = { avgCorrectResponseMs: 2000, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
+  const fastHistory = { avgCorrectResponseMs: 500, lastSeen: now - 5 * 24 * 60 * 60 * 1000 };
+  const slowWeight = L.computeSelectionWeight(slowWord, slowHistory, models, now);
+  const fastWeight = L.computeSelectionWeight(fastWord, fastHistory, models, now);
   assert.ok(slowWeight > fastWeight, `slower-than-expected word should weigh more (slow=${slowWeight}, fast=${fastWeight})`);
 });
 
-test("reviewPriorityWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
+test("computeSelectionWeight temporarily suppresses a word tested moments ago vs the same word tested long ago", () => {
   const now = 1000000;
-  const baseline = { predict: () => 1000 };
-  const wordInfo = { avgCorrectResponseMs: 2000 };
-  const justTested = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 1000 }), baseline, now);
-  const testedDaysAgo = L.reviewPriorityWeight(Object.assign({}, wordInfo, { lastSeen: now - 10 * 24 * 60 * 60 * 1000 }), baseline, now);
+  const models = { difficultyBaseline: null, interferenceModel: null, responseTimeBaseline: { predict: () => 1000 } };
+  const w = { word: "example", level: 4 };
+  const justTested = L.computeSelectionWeight(w, { avgCorrectResponseMs: 2000, lastSeen: now - 1000 }, models, now);
+  const testedDaysAgo = L.computeSelectionWeight(w, { avgCorrectResponseMs: 2000, lastSeen: now - 10 * 24 * 60 * 60 * 1000 }, models, now);
   assert.ok(testedDaysAgo > justTested, "a word tested moments ago should be less eager to repeat than the same word tested days ago");
 });
 
-test("reviewPriorityWeight falls back to a neutral weight when there's no timing data yet for the word", () => {
-  const w = L.reviewPriorityWeight({ lastSeen: 0 }, { predict: () => 1000 }, 1000000);
-  assert.ok(w > 0);
+test("computeSelectionWeight falls back to a neutral weight when there's no timing data yet for the word", () => {
+  const models = { difficultyBaseline: null, interferenceModel: null, responseTimeBaseline: { predict: () => 1000 } };
+  const weight = L.computeSelectionWeight({ word: "x", level: 4 }, { lastSeen: 0 }, models, 1000000);
+  assert.ok(weight > 0);
 });
 
-test("reviewPriorityWeight falls back to a neutral weight when there's no baseline at all yet (nobody has any timing data)", () => {
-  const w = L.reviewPriorityWeight({ avgCorrectResponseMs: 5000, lastSeen: 500000 }, null, 1000000);
-  assert.ok(w > 0);
+test("computeSelectionWeight falls back to a neutral weight when there's no baseline at all yet (nobody has any timing data)", () => {
+  const models = { difficultyBaseline: null, interferenceModel: null, responseTimeBaseline: null };
+  const weight = L.computeSelectionWeight({ word: "x", level: 4 }, { avgCorrectResponseMs: 5000, lastSeen: 500000 }, models, 1000000);
+  assert.ok(weight > 0);
+});
+
+test("computeSelectionWeight gives a word with a higher OWN empirical error rate a higher weight than one with a lower rate, all else equal", () => {
+  const now = 1000000;
+  const models = { difficultyBaseline: { predict: () => 0.2 }, interferenceModel: null, responseTimeBaseline: null };
+  const w = { word: "example", level: 4 };
+  const oftenWrong = L.computeSelectionWeight(w, { attempts: 10, incorrect: 9, lastSeen: now }, models, now);
+  const rarelyWrong = L.computeSelectionWeight(w, { attempts: 10, incorrect: 1, lastSeen: now }, models, now);
+  assert.ok(oftenWrong > rarelyWrong, "a word this user actually gets wrong most of the time should outweigh one they rarely miss");
 });
 
 /* ================= Length-aware response time baseline (fixes long words always reading as "slow") ================= */
@@ -877,27 +911,38 @@ test("computeInterferenceModel scores a word orthographically similar to the use
   assert.ok(model.risk("fight") > model.risk("orange"), "\"fight\" shares -ight with every struggling word; \"orange\" shares nothing");
 });
 
-test("predictWordDifficulty falls back to the baseline alone when there's no interference model yet", () => {
+test("predictWordDifficulty falls back to the baseline alone when there's no history or interference model yet", () => {
   const baseline = { predict: () => 0.3 };
-  assert.equal(L.predictWordDifficulty("anything", 4, baseline, null), 0.3);
+  assert.equal(L.predictWordDifficulty("anything", 4, null, baseline, null), 0.3);
 });
 
 test("predictWordDifficulty blends the baseline and interference signal using CONFIG's own weights", () => {
   const baseline = { predict: () => 0.2 };
   const interferenceModel = { risk: () => 1 };
-  const risk = L.predictWordDifficulty("word", 4, baseline, interferenceModel);
+  const risk = L.predictWordDifficulty("word", 4, null, baseline, interferenceModel);
   const expected = 0.2 * L.CONFIG.difficultyBaselineWeight + 1 * L.CONFIG.difficultyInterferenceWeight;
   assert.ok(Math.abs(risk - expected) < 1e-9);
 });
 
-test("rankNewWordsByPredictedDifficulty falls back to a plain shuffle (still a full, non-duplicated permutation) with no attempted-word data at all", () => {
+test("predictWordDifficulty leans toward a word's OWN empirical error rate as real attempts accumulate on it, rather than the generic baseline alone", () => {
+  const baseline = { predict: () => 0.1 }; // generic prediction: low risk
+  // This exact word, though, has actually been gotten wrong every time.
+  const risk1 = L.predictWordDifficulty("word", 4, { attempts: 1, incorrect: 1 }, baseline, null);
+  const risk20 = L.predictWordDifficulty("word", 4, { attempts: 20, incorrect: 20 }, baseline, null);
+  assert.ok(risk20 > risk1, "20 confirmed wrong attempts should move the estimate further than just 1");
+  assert.ok(risk20 > baseline.predict(), "with plenty of its own (bad) data, the word's own record should dominate the generic 0.1 baseline");
+});
+
+test("the unified priority pipeline (buildPriorityModels + computeSelectionWeight) falls back to an effectively uniform shuffle (still a full, non-duplicated permutation) with no data at all", () => {
   const pool = makePool(10, 4, "w");
-  const ranked = L.rankNewWordsByPredictedDifficulty(pool, {}, seededRandom(1));
+  const models = L.buildPriorityModels({});
+  const weights = pool.map((w) => L.computeSelectionWeight(w, null, models, Date.now()));
+  const ranked = L.weightedShuffle(pool, weights, seededRandom(1));
   assert.equal(ranked.length, 10);
   assert.equal(new Set(ranked.map((w) => w.word)).size, 10);
 });
 
-test("rankNewWordsByPredictedDifficulty surfaces a word similar to the user's struggling words first far more often than a dissimilar one, but not every single time", () => {
+test("the unified priority pipeline surfaces a never-attempted word similar to the user's struggling words first far more often than a dissimilar one, but not every single time", () => {
   const historyStore = {};
   // Struggling (interference-eligible) but error-rate-neutral, so this
   // scenario isolates the interference signal from the baseline one.
@@ -909,6 +954,9 @@ test("rankNewWordsByPredictedDifficulty surfaces a word similar to the user's st
   const hardWord = makeWord("fight", 4); // shares "-ight" with every struggling word
   const easyWord = makeWord("orange", 4); // shares nothing
   const pool = [hardWord, easyWord];
+  const models = L.buildPriorityModels(historyStore);
+  const now = Date.now();
+  const weights = pool.map((w) => L.computeSelectionWeight(w, null, models, now));
 
   // One generator reused across all trials (not reseeded per trial): a
   // freshly-seeded LCG's consecutive draws are correlated for small
@@ -917,11 +965,37 @@ test("rankNewWordsByPredictedDifficulty surfaces a word similar to the user's st
   let hardFirstCount = 0;
   const trials = 300;
   for (let i = 0; i < trials; i++) {
-    const ranked = L.rankNewWordsByPredictedDifficulty(pool, historyStore, rnd);
+    const ranked = L.weightedShuffle(pool, weights, rnd);
     if (ranked[0].word === "fight") hardFirstCount += 1;
   }
   const rate = hardFirstCount / trials;
   assert.ok(rate > 0.6, `predicted-harder word should lead the majority of the time (rate=${rate})`);
+  assert.ok(rate < 1, "should not be rigidly deterministic every single trial");
+});
+
+test("the unified priority pipeline surfaces an ALREADY-ATTEMPTED word the user keeps getting wrong first far more often than one they usually get right, but not every single time", () => {
+  const historyStore = {};
+  const oftenWrong = L.createEmptyWordHistory("stubborn", 5, 8);
+  oftenWrong.attempts = 8; oftenWrong.incorrect = 7; oftenWrong.correct = 1; oftenWrong.lastResult = "incorrect";
+  historyStore.stubborn = oftenWrong;
+  const usuallyRight = L.createEmptyWordHistory("simple", 4, 6);
+  usuallyRight.attempts = 8; usuallyRight.incorrect = 1; usuallyRight.correct = 7; usuallyRight.lastResult = "learning";
+  historyStore.simple = usuallyRight;
+
+  const pool = [makeWord("stubborn", 5), makeWord("simple", 4)];
+  const models = L.buildPriorityModels(historyStore);
+  const now = Date.now();
+  const weights = pool.map((w) => L.computeSelectionWeight(w, historyStore[w.word], models, now));
+
+  const rnd = seededRandom(7);
+  let wrongFirstCount = 0;
+  const trials = 300;
+  for (let i = 0; i < trials; i++) {
+    const ranked = L.weightedShuffle(pool, weights, rnd);
+    if (ranked[0].word === "stubborn") wrongFirstCount += 1;
+  }
+  const rate = wrongFirstCount / trials;
+  assert.ok(rate > 0.6, `the word this user actually keeps missing should lead the majority of the time (rate=${rate})`);
   assert.ok(rate < 1, "should not be rigidly deterministic every single trial");
 });
 

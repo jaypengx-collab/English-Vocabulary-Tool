@@ -807,17 +807,12 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note, state) {
   feedbackEl.innerHTML = "";
 
   const title = document.createElement("div");
+  title.className = "answer-title";
   const answerWord = document.createElement("div");
   answerWord.className = "answer-word";
-  if (correct) {
-    feedbackEl.classList.add("correct");
-    title.textContent = "✅ 正確！";
-    answerWord.textContent = `${item.word} `;
-  } else {
-    feedbackEl.classList.add("wrong");
-    title.textContent = `❌ 再加油　你的答案：${guess || "(空白)"}`;
-    answerWord.textContent = `正確答案：${item.word} `;
-  }
+  title.textContent = correct ? "✅ 正確！" : "❌ 再加油";
+  feedbackEl.classList.add(correct ? "correct" : "wrong");
+  answerWord.textContent = `${item.word} `;
   const posSpan = document.createElement("span");
   posSpan.className = "muted";
   posSpan.textContent = item.pos;
@@ -825,19 +820,25 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note, state) {
 
   feedbackEl.appendChild(title);
   feedbackEl.appendChild(answerWord);
-  feedbackEl.appendChild(buildZhBlock(item.zh));
 
   if (!correct) {
-    // Same letter-by-letter diff shown in Progress/複習 (see
-    // renderWrongAnswerCell/buildDiffHtml) - surfaced immediately after
-    // this answer too, not just later when browsing those tabs, so a
-    // mistake pattern (a swapped letter, a missing double letter) is
-    // visible right when it happens.
+    // Two-sided diff (see logic.js's diffCharsBoth): what you actually
+    // typed, with the specific letters that threw the spelling off
+    // highlighted, right next to the correct spelling with the letters you
+    // missed highlighted - replaces the old plain-text "你的答案：xxx" with
+    // something that shows exactly where the mistake was, not just that
+    // there was one.
+    const diffOps = Logic.diffCharsBoth(guess, item.word);
     const diffEl = document.createElement("div");
     diffEl.className = "answer-diff";
-    diffEl.innerHTML = `拼法對照：${buildDiffHtml(guess, item.word)}`;
+    diffEl.innerHTML = `
+      <div>你的答案：${guess ? diffOpsToHtml(diffOps.typed, "diff-extra") : "(空白)"}</div>
+      <div>正確答案：${diffOpsToHtml(diffOps.correct, "diff-miss")}</div>
+    `;
     feedbackEl.appendChild(diffEl);
   }
+
+  feedbackEl.appendChild(buildZhBlock(item.zh));
 
   if (note) {
     const noteEl = document.createElement("div");
@@ -846,12 +847,14 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note, state) {
     feedbackEl.appendChild(noteEl);
   }
 
-  if (correct && (state === "learning" || state === "memorized")) {
-    const stateEl = document.createElement("span");
-    stateEl.className = `state-badge ${state} answer-state`;
-    stateEl.textContent = STATE_LABELS[state];
-    feedbackEl.appendChild(stateEl);
-  }
+  // Always show where this word now stands (see STATE_LABELS) - not just
+  // for a correct answer that happened to graduate it - so it's clear
+  // right after every question whether it's freshly Incorrect, still
+  // Learning, or just became Memorized, without having to go check 複習.
+  const stateEl = document.createElement("span");
+  stateEl.className = `state-badge ${state} answer-state`;
+  stateEl.textContent = STATE_LABELS[state];
+  feedbackEl.appendChild(stateEl);
 }
 
 /* ---------- Vocabulary Test mode ---------- */
@@ -1073,9 +1076,10 @@ function showTestWord() {
   const input = document.getElementById("test-input");
   input.value = "";
   input.disabled = false;
-  document.getElementById("test-submit-btn").disabled = false;
+  const submitBtn = document.getElementById("test-submit-btn");
+  submitBtn.disabled = false;
+  submitBtn.textContent = "送出"; // reset from a previous question's "下一題 →"/"看結果 →" (see the submit handler below)
   document.getElementById("test-feedback").classList.add("hidden");
-  document.getElementById("test-next-btn").classList.add("hidden");
   input.focus();
 
   vocabTest.wordShownAt = Date.now();
@@ -1119,13 +1123,15 @@ document.getElementById("test-form").addEventListener("submit", (e) => {
   // other mode.
   rebalanceAutoModeTail();
 
+  // The submit button itself becomes the "next" control (no separate
+  // button to reach for on a small screen - same tap target, same spot,
+  // whether this is the first tap answering the word or the second tap
+  // moving on) - the form's own submit handler above already routes a
+  // second submit (Enter, or clicking this now-relabeled button) to
+  // advanceTest() via the `vocabTest.answered` check at the top.
   const isLast = testTimeUp() || vocabTest.index >= vocabTest.list.length - 1;
-  const nextBtn = document.getElementById("test-next-btn");
-  nextBtn.textContent = isLast ? "看結果 →" : "下一題 →";
-  nextBtn.classList.remove("hidden");
+  document.getElementById("test-submit-btn").textContent = isLast ? "看結果 →" : "下一題 →";
 });
-
-document.getElementById("test-next-btn").addEventListener("click", advanceTest);
 
 function advanceTest() {
   if (!testTimeUp() && vocabTest.index < vocabTest.list.length - 1) {
@@ -1142,7 +1148,6 @@ function finishTest() {
   document.getElementById("test-progress-fill").style.width = "100%";
   document.getElementById("test-form").classList.add("hidden");
   document.getElementById("test-feedback").classList.add("hidden");
-  document.getElementById("test-next-btn").classList.add("hidden");
 
   // vocabTest.list was built generously (the whole available pool - see
   // start-test-btn) since the round is time-boxed, not question-counted;
@@ -1306,8 +1311,9 @@ function sortReviewListItems(items, mode) {
     default:
       // Slowest RELATIVE TO THE EXPECTED TIME FOR ITS OWN LENGTH first
       // (see logic.js's relativeResponseTime/computeResponseTimeBaseline),
-      // matching the same priority the quiz's own question selection uses
-      // (reviewPriorityWeight) - NOT sorted by raw avgCorrectResponseMs,
+      // one of the same signals the quiz's own question selection folds
+      // into its priority weight (see computeSelectionWeight) - NOT sorted
+      // by raw avgCorrectResponseMs,
       // which would just put every long word at the top regardless of how
       // well it's actually known (more characters simply takes longer to
       // type, independent of memorization). Words with no timing data yet
@@ -2043,11 +2049,14 @@ function renderProgress() {
 // (renderAnswerFeedback) and the Progress/複習 word cards
 // (renderWrongAnswerCell) so "wierd" vs "weird" visually shows the swapped
 // letters in both places, not just one.
-function buildDiffHtml(typed, correctWord) {
-  const ops = Logic.diffChars(typed, correctWord);
+function diffOpsToHtml(ops, missClass) {
   return ops
-    .map((o) => (o.match ? escapeHtml(o.char) : `<span class="diff-miss">${escapeHtml(o.char)}</span>`))
+    .map((o) => (o.match ? escapeHtml(o.char) : `<span class="${missClass}">${escapeHtml(o.char)}</span>`))
     .join("");
+}
+
+function buildDiffHtml(typed, correctWord) {
+  return diffOpsToHtml(Logic.diffChars(typed, correctWord), "diff-miss");
 }
 
 function renderWrongAnswerCell(detail) {
