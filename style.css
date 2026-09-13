@@ -324,6 +324,12 @@ input[type="range"] { accent-color: var(--primary); flex: 1; max-width: 200px; m
 .speed-note.faster { color: var(--good); }
 .speed-note.slower { color: var(--warn); }
 
+.mnemonic-note {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .answer-diff {
   margin-top: 6px;
   font-size: 0.95rem;

@@ -999,6 +999,159 @@ test("the unified priority pipeline surfaces an ALREADY-ATTEMPTED word the user 
   assert.ok(rate < 1, "should not be rigidly deterministic every single trial");
 });
 
+/* ================= AI-generated signals (data/ai_signals.json) ================= */
+
+test("computeInterferenceModel adds an AI-flagged semantic-confusion signal on top of (not instead of) the existing orthographic one", () => {
+  const historyStore = {};
+  for (const w of ["big", "cat", "dog"]) { // 3 struggling words, meets the minimum
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  // "large" shares no bigrams at all with any struggling word - isolates the
+  // semantic signal from the orthographic one (independently confirmed via
+  // bigramSimilarity, not assumed).
+  assert.equal(L.bigramSimilarity("large", "big"), 0);
+  assert.equal(L.bigramSimilarity("large", "cat"), 0);
+  assert.equal(L.bigramSimilarity("large", "dog"), 0);
+
+  const aiSignals = { big: { confusedWith: ["large"], mnemonic: "", priorDifficulty: 0.5 } };
+  const model = L.computeInterferenceModel(historyStore, aiSignals);
+  assert.ok(model);
+  // Zero orthographic overlap + the semantic flag -> exactly the semantic weight.
+  assert.ok(Math.abs(model.risk("large") - L.CONFIG.difficultySemanticWeight) < 1e-9);
+  // A word with neither orthographic nor semantic linkage stays at 0.
+  assert.equal(model.risk("zebra"), 0);
+});
+
+test("computeInterferenceModel also catches the reverse direction: a word whose OWN confusedWith list names a struggling word", () => {
+  const historyStore = {};
+  for (const w of ["big", "cat", "dog"]) {
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  // "large" (not "big") carries the confusedWith entry here, naming "big".
+  const aiSignals = { large: { confusedWith: ["big"], mnemonic: "", priorDifficulty: 0.5 } };
+  const model = L.computeInterferenceModel(historyStore, aiSignals);
+  assert.ok(Math.abs(model.risk("large") - L.CONFIG.difficultySemanticWeight) < 1e-9);
+});
+
+test("computeInterferenceModel without an aiSignals argument behaves exactly as before (orthographic only)", () => {
+  const historyStore = {};
+  for (const w of ["light", "might", "right"]) {
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  const model = L.computeInterferenceModel(historyStore);
+  assert.ok(model);
+  assert.equal(model.risk("orange"), 0);
+});
+
+test("computeDifficultyBaseline is still null with no attempted words and no usable aiSignals (unchanged pre-AI-signals behavior)", () => {
+  assert.equal(L.computeDifficultyBaseline({}), null);
+  assert.equal(L.computeDifficultyBaseline({}, {}), null);
+});
+
+test("computeDifficultyBaseline uses each word's AI priorDifficulty as a cold-start guess when there's no attempt data anywhere yet", () => {
+  const aiSignals = {
+    hard: { priorDifficulty: 0.9 },
+    easy: { priorDifficulty: 0.1 },
+  };
+  const baseline = L.computeDifficultyBaseline({}, aiSignals);
+  assert.ok(baseline);
+  assert.equal(baseline.predict("hard"), 0.9);
+  assert.equal(baseline.predict("easy"), 0.1);
+  // A word missing from aiSignals falls back to the same flat neutral guess
+  // predictWordDifficulty itself uses with no baseline at all.
+  assert.equal(baseline.predict("unknown"), 0.15);
+});
+
+test("computeDifficultyBaseline shrinks a word's AI priorDifficulty toward the real group average as attempt data accumulates, rather than trusting it forever", () => {
+  // n=2 attempted words overall, both level 4, overall/group average error
+  // rate exactly 0.5 (same fixture as the "falls back to a flat average"
+  // baseline test, so the group-based estimate for "newword" is a known,
+  // hand-verified 0.5 with no prior involved).
+  const store2 = {};
+  const rows2 = [
+    { word: "ab", length: 2, attempts: 4, incorrect: 1, level: 4 },
+    { word: "abcdefghij", length: 10, attempts: 4, incorrect: 3, level: 4 },
+  ];
+  for (const r of rows2) {
+    const h = L.createEmptyWordHistory(r.word, r.level, r.length);
+    h.attempts = r.attempts; h.incorrect = r.incorrect; h.correct = r.attempts - r.incorrect;
+    store2[r.word] = h;
+  }
+  // n=6 attempted words, still level 4 throughout and still a 0.5 overall/
+  // group average (3 always-right, 3 always-wrong) - more real data behind
+  // the same group estimate.
+  const store6 = {};
+  for (let i = 0; i < 3; i++) {
+    const h = L.createEmptyWordHistory("z" + i, 4, 5);
+    h.attempts = 1; h.correct = 1; h.incorrect = 0;
+    store6["z" + i] = h;
+  }
+  for (let i = 0; i < 3; i++) {
+    const h = L.createEmptyWordHistory("y" + i, 4, 5);
+    h.attempts = 1; h.correct = 0; h.incorrect = 1;
+    store6["y" + i] = h;
+  }
+
+  const aiSignals = { newword: { priorDifficulty: 1.0 } };
+  const baseline2 = L.computeDifficultyBaseline(store2, aiSignals);
+  const baseline6 = L.computeDifficultyBaseline(store6, aiSignals);
+
+  // Group estimate (with no prior at all) is exactly 0.5 in both cases -
+  // confirms the two fixtures really do isolate sample size as the only
+  // difference (hand-verified: shrunk level deviation is 0 either way,
+  // since the level-4 group average always equals the overall average).
+  assert.equal(L.computeDifficultyBaseline(store2).predict("newword", 4), 0.5);
+  assert.equal(L.computeDifficultyBaseline(store6).predict("newword", 4), 0.5);
+
+  // trust = n/(n+K), K = CONFIG.difficultyShrinkageK (6): n=2 -> 0.25,
+  // n=6 -> 0.5. blended = groupEstimate*trust + prior*(1-trust).
+  assert.ok(Math.abs(baseline2.predict("newword", 4) - 0.875) < 1e-9);
+  assert.ok(Math.abs(baseline6.predict("newword", 4) - 0.75) < 1e-9);
+
+  const gapWithLessData = Math.abs(baseline2.predict("newword", 4) - 0.5);
+  const gapWithMoreData = Math.abs(baseline6.predict("newword", 4) - 0.5);
+  assert.ok(
+    gapWithMoreData < gapWithLessData,
+    `more accumulated attempt data should pull the AI prior closer to the group average (gapWithLessData=${gapWithLessData}, gapWithMoreData=${gapWithMoreData})`
+  );
+});
+
+test("the unified priority pipeline (buildPriorityModels + computeSelectionWeight) surfaces a never-attempted word AI-flagged as confused with a struggling word, even with zero orthographic overlap", () => {
+  const historyStore = {};
+  // Error-rate-neutral (always correct) but still "incorrect"-state, same
+  // trick as the earlier orthographic-interference pipeline test, so this
+  // isolates the semantic interference signal from the baseline one.
+  for (const w of ["big", "cat", "dog"]) {
+    const h = L.createEmptyWordHistory(w, 4, w.length);
+    h.attempts = 1; h.incorrect = 0; h.correct = 1; h.lastResult = "incorrect";
+    historyStore[w] = h;
+  }
+  const aiSignals = { big: { confusedWith: ["large"], mnemonic: "", priorDifficulty: 0.5 } };
+  const confusedWord = makeWord("large", 4); // AI-flagged confusion with "big"; shares no bigrams with it
+  const unrelatedWord = makeWord("zebra", 4); // neither orthographically nor semantically linked
+  const pool = [confusedWord, unrelatedWord];
+  const models = L.buildPriorityModels(historyStore, aiSignals);
+  const now = Date.now();
+  const weights = pool.map((w) => L.computeSelectionWeight(w, null, models, now));
+
+  const rnd = seededRandom(42);
+  let confusedFirstCount = 0;
+  const trials = 1000; // more trials than the bigram-only pipeline tests use, since this signal's effect size is smaller (semantic weight 0.3 vs a bigram similarity that can reach 1)
+  for (let i = 0; i < trials; i++) {
+    const ranked = L.weightedShuffle(pool, weights, rnd);
+    if (ranked[0].word === "large") confusedFirstCount += 1;
+  }
+  const rate = confusedFirstCount / trials;
+  assert.ok(rate > 0.55, `the AI-flagged confused word should lead the majority of the time (rate=${rate})`);
+  assert.ok(rate < 1, "should not be rigidly deterministic every single trial");
+});
+
 /* ================= Persistence / migration / backward compatibility ================= */
 
 test("migrateWordEntry upgrades legacy v1 {box,due,correct,wrong,lastSeen} shape without losing progress", () => {

@@ -294,6 +294,13 @@ window.VocabUI = {
 let VOCAB = [];
 let VOCAB_BY_LEVEL = { 4: [], 5: [], 6: [] };
 let VOCAB_INDEX = {}; // word.toLowerCase() -> {word, level}, also reused by import below
+// AI-generated per-word study signals (see scripts/generate_ai_signals.py) -
+// word -> {confusedWith, mnemonic, priorDifficulty}. Loaded once as a static
+// asset exactly like VOCAB, never fetched at runtime from an external API.
+// Words with no entry here (not yet generated for, e.g. added after the
+// last generation run) simply aren't in this object - every consumer below
+// already treats a missing/empty aiSignals gracefully.
+let AI_SIGNALS = {};
 
 function buildVocabIndex() {
   const index = {};
@@ -325,6 +332,19 @@ async function loadVocab() {
   // still calls saveProgress() itself and is still pushed normally.
   progressStore = Logic.migrateProgressStore(progressStore, VOCAB_INDEX);
   persistProgress();
+}
+
+// Optional: the generation script may not have run yet (brand-new checkout,
+// or new words added since the last run), so a missing/unparseable file is
+// expected, not an error - every priority-model consumer already treats an
+// empty AI_SIGNALS exactly like having no signals for any word at all.
+async function loadAiSignals() {
+  try {
+    const res = await fetch("data/ai_signals.json?v=__BUILD_VERSION__");
+    AI_SIGNALS = res.ok ? await res.json() : {};
+  } catch (err) {
+    AI_SIGNALS = {};
+  }
 }
 
 function selectedLevels() {
@@ -840,6 +860,17 @@ function renderAnswerFeedback(feedbackEl, item, correct, guess, note, state) {
 
   feedbackEl.appendChild(buildZhBlock(item.zh));
 
+  // AI-generated memory hook (see data/ai_signals.json) - only worth
+  // showing right after a miss, when a hook to attach the spelling to is
+  // actually useful; a word just answered correctly doesn't need one.
+  const aiSignal = AI_SIGNALS[item.word];
+  if (!correct && aiSignal && aiSignal.mnemonic) {
+    const mnemonicEl = document.createElement("div");
+    mnemonicEl.className = "mnemonic-note";
+    mnemonicEl.textContent = `💡 ${aiSignal.mnemonic}`;
+    feedbackEl.appendChild(mnemonicEl);
+  }
+
   if (note) {
     const noteEl = document.createElement("div");
     noteEl.className = `speed-note ${note.cls}`;
@@ -913,6 +944,7 @@ function rebalanceAutoModeTail() {
     historyStore: progressStore,
     size: pool.length,
     ratio: ratio,
+    aiSignals: AI_SIGNALS,
   }).filter((w) => !presented.has(w.word.toLowerCase()));
   vocabTest.list = vocabTest.list.slice(0, vocabTest.index + 1).concat(freshTail);
   preloadNextAudio();
@@ -1014,7 +1046,7 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
   // pool.length distinct words anyway, so this is never wasteful, just
   // generous). testTimeUp()/advanceTest() below are what actually end the
   // round.
-  vocabTest.list = Logic.selectQuestions({ pool: pool, historyStore: progressStore, size: pool.length, ratio: ratio });
+  vocabTest.list = Logic.selectQuestions({ pool: pool, historyStore: progressStore, size: pool.length, ratio: ratio, aiSignals: AI_SIGNALS });
   document.getElementById("test-summary").classList.add("hidden");
   // The chosen levels + ratio can genuinely come up empty (e.g. sliders set
   // to 100% incorrect/待複習 but nothing is currently marked incorrect) -
@@ -1060,6 +1092,7 @@ document.getElementById("start-test-btn").addEventListener("click", () => {
         historyStore: progressStore,
         size: pool.length,
         ratio: currentModeRatioFraction(freshPool),
+        aiSignals: AI_SIGNALS,
       }).filter((w) => !presented.has(w.word.toLowerCase()));
       vocabTest.list = vocabTest.list.slice(0, vocabTest.index + 1).concat(freshList);
       preloadNextAudio();
@@ -2332,7 +2365,7 @@ async function init() {
     showUpdateToast(`✅ 已更新到最新版本（${justUpdated}）`);
   }
 
-  await loadVocab();
+  await Promise.all([loadVocab(), loadAiSignals()]);
   updateLevelHint();
   applySettingsToUI(); // also refreshes the auto-mode ratio hint via applyModeToUI
   // Pre-renders 複習 right away instead of waiting for its tab to be

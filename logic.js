@@ -147,6 +147,15 @@
     // at all (see predictWordDifficulty).
     difficultyBaselineWeight: 0.6,
     difficultyInterferenceWeight: 0.4,
+    // How much weight computeInterferenceModel gives a word flagged as
+    // commonly confused with a struggling word by the offline AI-generated
+    // signals (see data/ai_signals.json's confusedWith), ADDED on top of
+    // (never replacing) the existing bigram-based orthographic similarity -
+    // semantic/visual confusion (e.g. affect/effect) is a real interference
+    // source bigram overlap alone can miss entirely, but orthographic
+    // similarity is still real signal on its own and shouldn't be discarded
+    // just because AI signals are also available.
+    difficultySemanticWeight: 0.3,
   };
 
   const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -696,9 +705,22 @@
   // observe about it (not this learner's personal history beyond what
   // calibrates the model): a length trend (same regression technique as
   // computeResponseTimeBaseline), plus shrunk group effects for curriculum
-  // level and doubled letters. Returns null with no attempted words at all.
-  function computeDifficultyBaseline(historyStore) {
+  // level and doubled letters. Returns null with no attempted words at all
+  // AND no `aiSignals` (see data/ai_signals.json) to fall back on either.
+  //
+  // `aiSignals`, when given, supplies each word's own priorDifficulty - an
+  // AI-estimated cold-start guess, generated offline from word properties an
+  // LLM can judge better than a length/level heuristic alone (irregularity,
+  // rarity, etc). With NO attempted words anywhere yet, there is no group
+  // average to shrink toward at all, so a word's prior is used as-is (or a
+  // neutral 0.15 if even that's missing). Once real attempts start
+  // accumulating, the prior is shrunk toward the (now real) length/level/
+  // doubled-letter estimate above using the same n/(n+K) trust formula
+  // already used for those group effects - the more data the group estimate
+  // has, the more it's trusted over the one-off AI guess for this word.
+  function computeDifficultyBaseline(historyStore, aiSignals) {
     const store = historyStore || {};
+    const signals = aiSignals || {};
     const lengthPoints = [];
     const byLevel = {};
     const byDoubled = { yes: [], no: [] };
@@ -714,7 +736,20 @@
       if (h.word) (hasDoubledLetter(h.word) ? byDoubled.yes : byDoubled.no).push(errorRate);
     }
 
-    if (!lengthPoints.length) return null;
+    function priorDifficultyOf(word) {
+      const entry = signals[word];
+      return entry && typeof entry.priorDifficulty === "number" ? clamp(entry.priorDifficulty, 0, 1) : null;
+    }
+
+    if (!lengthPoints.length) {
+      if (!Object.keys(signals).length) return null;
+      return {
+        predict: (word) => {
+          const prior = priorDifficultyOf(word || "");
+          return prior != null ? prior : 0.15;
+        },
+      };
+    }
     const overallAvg = clamp(average(lengthPoints.map((p) => p.y)), 0, 1);
 
     let lengthPredict;
@@ -742,6 +777,13 @@
         let risk = lengthPredict(w.length);
         if (level != null && levelDeviation[level] != null) risk += levelDeviation[level];
         if (doubledDeviation && hasDoubledLetter(w)) risk += doubledDeviation;
+        risk = clamp(risk, 0, 1);
+
+        const prior = priorDifficultyOf(w);
+        if (prior != null) {
+          const trust = lengthPoints.length / (lengthPoints.length + CONFIG.difficultyShrinkageK);
+          risk = risk * trust + prior * (1 - trust);
+        }
         return clamp(risk, 0, 1);
       },
     };
@@ -755,7 +797,19 @@
   // resemble the candidate at all). Returns null below
   // CONFIG.minStruggleWordsForInterference words - similarity to only one or
   // two struggling words is too easily a coincidence to act on.
-  function computeInterferenceModel(historyStore) {
+  //
+  // `aiSignals` (optional - see data/ai_signals.json) adds a second,
+  // semantic/visual interference source alongside the orthographic one
+  // above: a word the offline AI generation flagged as commonly confused
+  // with a struggling word (e.g. affect/effect, economic/economical) is
+  // exactly the kind of confusion bigram overlap can't see at all, since the
+  // two words may not share any letter pattern. Checked in both directions
+  // (the struggling word's own confusedWith list, and any other word whose
+  // confusedWith list names the struggling word) since either entry is
+  // equally good evidence the two are confusable. Omitted entirely (no
+  // second argument, or a word missing from the signals) degrades cleanly
+  // back to the orthographic-only model above.
+  function computeInterferenceModel(historyStore, aiSignals) {
     const store = historyStore || {};
     const strugglingWords = [];
     for (const key of Object.keys(store)) {
@@ -763,6 +817,24 @@
       if (h && h.word && h.lastResult === "incorrect") strugglingWords.push(h.word);
     }
     if (strugglingWords.length < CONFIG.minStruggleWordsForInterference) return null;
+
+    const signals = aiSignals || {};
+    const strugglingLower = new Set(strugglingWords.map((w) => w.toLowerCase()));
+    const semanticRiskWords = new Set();
+    for (const struggling of strugglingWords) {
+      const entry = signals[struggling];
+      if (entry && Array.isArray(entry.confusedWith)) {
+        for (const confused of entry.confusedWith) semanticRiskWords.add(confused.toLowerCase());
+      }
+    }
+    for (const word of Object.keys(signals)) {
+      const entry = signals[word];
+      if (!entry || !Array.isArray(entry.confusedWith)) continue;
+      for (const confused of entry.confusedWith) {
+        if (strugglingLower.has(confused.toLowerCase())) semanticRiskWords.add(word.toLowerCase());
+      }
+    }
+
     return {
       risk: (word) => {
         let best = 0;
@@ -770,7 +842,8 @@
           const sim = bigramSimilarity(word, struggling);
           if (sim > best) best = sim;
         }
-        return best;
+        const semanticRisk = semanticRiskWords.has((word || "").toLowerCase()) ? 1 : 0;
+        return clamp(best + CONFIG.difficultySemanticWeight * semanticRisk, 0, 1);
       },
     };
   }
@@ -801,11 +874,13 @@
   // Every model predictWordDifficulty/computeSelectionWeight need, built
   // once per round from historyStore and shared across new/incorrect/
   // learning alike (see rankCandidates) rather than each category
-  // recomputing its own copy.
-  function buildPriorityModels(historyStore) {
+  // recomputing its own copy. `aiSignals` (optional - see
+  // data/ai_signals.json) is passed straight through to the two models that
+  // use it; omitted, both degrade to their pre-AI-signals behavior.
+  function buildPriorityModels(historyStore, aiSignals) {
     return {
-      difficultyBaseline: computeDifficultyBaseline(historyStore),
-      interferenceModel: computeInterferenceModel(historyStore),
+      difficultyBaseline: computeDifficultyBaseline(historyStore, aiSignals),
+      interferenceModel: computeInterferenceModel(historyStore, aiSignals),
       responseTimeBaseline: computeResponseTimeBaseline(historyStore),
     };
   }
@@ -1046,7 +1121,7 @@
     if (size <= 0) return [];
 
     const { unseen, incorrect, learning } = categorizeWords(pool, historyStore);
-    const models = buildPriorityModels(historyStore);
+    const models = buildPriorityModels(historyStore, o.aiSignals);
     const targets = computeQuestionTargets(size, ratio);
     const categoryWords = { new: unseen, incorrect: incorrect, learning: learning };
 
