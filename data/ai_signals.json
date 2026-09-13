@@ -24,6 +24,11 @@
     "mnemonic": "Abbreviate makes long words brief.",
     "priorDifficulty": 0.75
   },
+  "abide": {
+    "confusedWith": [],
+    "mnemonic": "I can a-bide (live with) this rule.",
+    "priorDifficulty": 0.7
+  },
   "abnormal": {
     "confusedWith": [],
     "mnemonic": "Abnormal means not normal or unusual.",
@@ -36,10 +41,22 @@
     "mnemonic": "Abolish a bad law completely.",
     "priorDifficulty": 0.6
   },
+  "aboriginal": {
+    "confusedWith": [],
+    "mnemonic": "Ab-original people are the original inhabitants.",
+    "priorDifficulty": 0.75
+  },
   "abortion": {
     "confusedWith": [],
     "mnemonic": "Abortion is a medical procedure.",
     "priorDifficulty": 0.7
+  },
+  "abound": {
+    "confusedWith": [
+      "abandon"
+    ],
+    "mnemonic": "A-bound-ant fish abound in the lake.",
+    "priorDifficulty": 0.65
   },
   "abrupt": {
     "confusedWith": [
@@ -74,12 +91,27 @@
     "mnemonic": "Pulled away from concrete reality into pure ideas.",
     "priorDifficulty": 0.45
   },
+  "abstraction": {
+    "confusedWith": [
+      "attraction"
+    ],
+    "mnemonic": "Abstract ideas become an abstraction.",
+    "priorDifficulty": 0.72
+  },
   "absurd": {
     "confusedWith": [
       "abstract"
     ],
     "mnemonic": "Absurd ideas are totally ridiculous.",
     "priorDifficulty": 0.6
+  },
+  "abundance": {
+    "confusedWith": [
+      "abandon",
+      "absorb"
+    ],
+    "mnemonic": "A bunch of fruit means an abundance.",
+    "priorDifficulty": 0.68
   },
   "abundant": {
     "confusedWith": [
@@ -101,6 +133,13 @@
     ],
     "mnemonic": "Think of an academy where academic learning takes place.",
     "priorDifficulty": 0.3
+  },
+  "academy": {
+    "confusedWith": [
+      "academic"
+    ],
+    "mnemonic": "An academy for academic learning.",
+    "priorDifficulty": 0.5
   },
   "accelerate": {
     "confusedWith": [
@@ -132,12 +171,22 @@
     "mnemonic": "Accessible means easy to reach or enter.",
     "priorDifficulty": 0.7
   },
+  "accessory": {
+    "confusedWith": [],
+    "mnemonic": "Access your trendy accessory.",
+    "priorDifficulty": 0.7
+  },
   "accidental": {
     "confusedWith": [
       "accent"
     ],
     "mnemonic": "An accident is incidental and accidental.",
     "priorDifficulty": 0.5
+  },
+  "acclaim": {
+    "confusedWith": [],
+    "mnemonic": "Claim your fame with great acclaim.",
+    "priorDifficulty": 0.75
   },
   "accommodate": {
     "confusedWith": [
@@ -179,6 +228,27 @@
     "mnemonic": "Of one's own accord means voluntarily.",
     "priorDifficulty": 0.6
   },
+  "accordance": {
+    "confusedWith": [
+      "accordingly"
+    ],
+    "mnemonic": "In accord with the guidance.",
+    "priorDifficulty": 0.8
+  },
+  "accordingly": {
+    "confusedWith": [
+      "accordance"
+    ],
+    "mnemonic": "According to plan, act accordingly.",
+    "priorDifficulty": 0.6
+  },
+  "accountable": {
+    "confusedWith": [
+      "accuse"
+    ],
+    "mnemonic": "You count, so you are accountable.",
+    "priorDifficulty": 0.65
+  },
   "accountant": {
     "confusedWith": [],
     "mnemonic": "Count on the accountant.",
@@ -191,15 +261,44 @@
     "mnemonic": "Accounting involves managing financial records.",
     "priorDifficulty": 0.6
   },
+  "accumulate": {
+    "confusedWith": [
+      "accompany"
+    ],
+    "mnemonic": "A-ccum-ulate coins in a cup.",
+    "priorDifficulty": 0.7
+  },
+  "accumulation": {
+    "confusedWith": [
+      "accumulate",
+      "accuracy"
+    ],
+    "mnemonic": "Accumulating leads to accumulation.",
+    "priorDifficulty": 0.78
+  },
   "accuracy": {
     "confusedWith": [],
     "mnemonic": "Accuracy means getting it right.",
     "priorDifficulty": 0.5
   },
+  "accusation": {
+    "confusedWith": [
+      "accuse"
+    ],
+    "mnemonic": "Accuse someone, make an accusation.",
+    "priorDifficulty": 0.72
+  },
   "accuse": {
     "confusedWith": [],
     "mnemonic": "Do not accuse me, find an excuse!",
     "priorDifficulty": 0.4
+  },
+  "accustom": {
+    "confusedWith": [
+      "accuse"
+    ],
+    "mnemonic": "Get accustomed to your customs.",
+    "priorDifficulty": 0.65
   },
   "acid": {
     "confusedWith": [],
@@ -217,6 +316,13 @@
     ],
     "mnemonic": "An acknowledgement shows that something was received.",
     "priorDifficulty": 0.8
+  },
+  "acne": {
+    "confusedWith": [
+      "acute"
+    ],
+    "mnemonic": "Acne can be a cute pimple? No, painful.",
+    "priorDifficulty": 0.55
   },
   "acquaint": {
     "confusedWith": [
@@ -242,6 +348,11 @@
     "mnemonic": "An acquisition is something gained or bought.",
     "priorDifficulty": 0.8
   },
+  "acre": {
+    "confusedWith": [],
+    "mnemonic": "A-acre of land in the area.",
+    "priorDifficulty": 0.58
+  },
   "activist": {
     "confusedWith": [],
     "mnemonic": "An activist fights for social change.",
@@ -261,10 +372,22 @@
     "mnemonic": "Adapt to a new environment.",
     "priorDifficulty": 0.4
   },
+  "adaptation": {
+    "confusedWith": [
+      "adapt"
+    ],
+    "mnemonic": "Adapt to get a new adaptation.",
+    "priorDifficulty": 0.62
+  },
   "addict": {
     "confusedWith": [],
     "mnemonic": "Addicted to an act.",
     "priorDifficulty": 0.4
+  },
+  "addiction": {
+    "confusedWith": [],
+    "mnemonic": "Addicted to friction, that's an addiction.",
+    "priorDifficulty": 0.55
   },
   "adequate": {
     "confusedWith": [
@@ -286,6 +409,21 @@
     ],
     "mnemonic": "Adjust plus ment.",
     "priorDifficulty": 0.5
+  },
+  "administer": {
+    "confusedWith": [
+      "administration"
+    ],
+    "mnemonic": "Minister to administer the office.",
+    "priorDifficulty": 0.7
+  },
+  "administrate": {
+    "confusedWith": [
+      "administer",
+      "adequate"
+    ],
+    "mnemonic": "Administer or administrate the state.",
+    "priorDifficulty": 0.75
   },
   "administration": {
     "confusedWith": [
@@ -318,6 +456,11 @@
     "mnemonic": "Admire a bull that is admirable.",
     "priorDifficulty": 0.5
   },
+  "admiral": {
+    "confusedWith": [],
+    "mnemonic": "The admirable admiral commands the fleet.",
+    "priorDifficulty": 0.65
+  },
   "admiration": {
     "confusedWith": [
       "admirable"
@@ -329,6 +472,13 @@
     "confusedWith": [],
     "mnemonic": "Admission to the mission.",
     "priorDifficulty": 0.5
+  },
+  "adolescence": {
+    "confusedWith": [
+      "adolescent"
+    ],
+    "mnemonic": "A doll scents teenage adolescence.",
+    "priorDifficulty": 0.8
   },
   "adolescent": {
     "confusedWith": [
@@ -356,6 +506,11 @@
     "mnemonic": "Adverse weather brings a-verse conditions.",
     "priorDifficulty": 0.6
   },
+  "advisory": {
+    "confusedWith": [],
+    "mnemonic": "An advisory board gives advice.",
+    "priorDifficulty": 0.68
+  },
   "advocate": {
     "confusedWith": [
       "allocate"
@@ -363,10 +518,37 @@
     "mnemonic": "Advocate sounds like voice (voca) for a cause.",
     "priorDifficulty": 0.6
   },
+  "aesthetic": {
+    "confusedWith": [
+      "athletic",
+      "authentic"
+    ],
+    "mnemonic": "A-es-thetic beauty is art.",
+    "priorDifficulty": 0.82
+  },
   "affection": {
     "confusedWith": [],
     "mnemonic": "Affection is a feeling of affection.",
     "priorDifficulty": 0.4
+  },
+  "affectionate": {
+    "confusedWith": [
+      "affection"
+    ],
+    "mnemonic": "Affection brings affectionate hugs.",
+    "priorDifficulty": 0.7
+  },
+  "affiliate": {
+    "confusedWith": [
+      "affirm"
+    ],
+    "mnemonic": "A-file-i-ate your company affiliation.",
+    "priorDifficulty": 0.78
+  },
+  "affirm": {
+    "confusedWith": [],
+    "mnemonic": "Firmly affirm the truth.",
+    "priorDifficulty": 0.65
   },
   "agency": {
     "confusedWith": [
@@ -419,6 +601,16 @@
     "mnemonic": "Agri-cultural relates to farming culture.",
     "priorDifficulty": 0.6
   },
+  "airtight": {
+    "confusedWith": [],
+    "mnemonic": "Air cannot pass through an airtight seal.",
+    "priorDifficulty": 0.52
+  },
+  "airway": {
+    "confusedWith": [],
+    "mnemonic": "Air ways for breathing or flying.",
+    "priorDifficulty": 0.45
+  },
   "aisle": {
     "confusedWith": [
       "isle"
@@ -443,10 +635,35 @@
     "mnemonic": "Stay alert and awake.",
     "priorDifficulty": 0.3
   },
+  "algebra": {
+    "confusedWith": [],
+    "mnemonic": "Algebra is math with letters.",
+    "priorDifficulty": 0.55
+  },
   "alien": {
     "confusedWith": [],
     "mnemonic": "An alien is from another planet.",
     "priorDifficulty": 0.3
+  },
+  "alienate": {
+    "confusedWith": [
+      "alien",
+      "alter"
+    ],
+    "mnemonic": "Treat friends like aliens; alienate them.",
+    "priorDifficulty": 0.75
+  },
+  "align": {
+    "confusedWith": [
+      "assign"
+    ],
+    "mnemonic": "A-line up to align the text.",
+    "priorDifficulty": 0.68
+  },
+  "allege": {
+    "confusedWith": [],
+    "mnemonic": "Alleged crimes need evidence.",
+    "priorDifficulty": 0.78
   },
   "allergic": {
     "confusedWith": [
@@ -468,6 +685,13 @@
       "ally"
     ],
     "mnemonic": "An alliance is a strong alliance.",
+    "priorDifficulty": 0.6
+  },
+  "alligator": {
+    "confusedWith": [
+      "crocodile"
+    ],
+    "mnemonic": "Alligators live in swamps.",
     "priorDifficulty": 0.6
   },
   "allocate": {
@@ -510,10 +734,31 @@
     "mnemonic": "An alternative is another choice.",
     "priorDifficulty": 0.6
   },
+  "altitude": {
+    "confusedWith": [
+      "latitude"
+    ],
+    "mnemonic": "Al-ti-tude measures high attitude.",
+    "priorDifficulty": 0.65
+  },
+  "aluminum": {
+    "confusedWith": [
+      "bulletin"
+    ],
+    "mnemonic": "Alu-min-um foil is made of metal.",
+    "priorDifficulty": 0.72
+  },
   "amateur": {
     "confusedWith": [],
     "mnemonic": "An amateur is not a pro.",
     "priorDifficulty": 0.6
+  },
+  "ambiguity": {
+    "confusedWith": [
+      "ambiguous"
+    ],
+    "mnemonic": "Ambiguous words cause ambiguity.",
+    "priorDifficulty": 0.82
   },
   "ambiguous": {
     "confusedWith": [
@@ -534,10 +779,29 @@
     "mnemonic": "Amend means to fix or change laws.",
     "priorDifficulty": 0.5
   },
+  "amid": {
+    "confusedWith": [],
+    "mnemonic": "A-midst of the crowd, a-mid the noise.",
+    "priorDifficulty": 0.55
+  },
+  "amidst": {
+    "confusedWith": [
+      "amid"
+    ],
+    "mnemonic": "Amidst the storm, stay calm.",
+    "priorDifficulty": 0.58
+  },
   "ample": {
     "confusedWith": [],
     "mnemonic": "Ample means more than enough.",
     "priorDifficulty": 0.4
+  },
+  "amplify": {
+    "confusedWith": [
+      "ample"
+    ],
+    "mnemonic": "Amplify the sound to make it ample.",
+    "priorDifficulty": 0.7
   },
   "amuse": {
     "confusedWith": [
@@ -552,6 +816,14 @@
     ],
     "mnemonic": "Amuse plus ment equals amusement.",
     "priorDifficulty": 0.4
+  },
+  "analogy": {
+    "confusedWith": [
+      "analysis",
+      "biology"
+    ],
+    "mnemonic": "An-a-logy is a comparison.",
+    "priorDifficulty": 0.75
   },
   "analysis": {
     "confusedWith": [
@@ -568,6 +840,14 @@
     "mnemonic": "An ana-lyst analyzes data.",
     "priorDifficulty": 0.6
   },
+  "analytical": {
+    "confusedWith": [
+      "analyze",
+      "alternative"
+    ],
+    "mnemonic": "Analytical minds analyze well.",
+    "priorDifficulty": 0.72
+  },
   "analyze": {
     "confusedWith": [
       "analysis"
@@ -579,6 +859,18 @@
     "confusedWith": [],
     "mnemonic": "Ancestors came before us.",
     "priorDifficulty": 0.5
+  },
+  "anchor": {
+    "confusedWith": [],
+    "mnemonic": "Drop the anchor to stop the ship.",
+    "priorDifficulty": 0.55
+  },
+  "animate": {
+    "confusedWith": [
+      "annual"
+    ],
+    "mnemonic": "Animate cartoons bring animals to life.",
+    "priorDifficulty": 0.62
   },
   "anniversary": {
     "confusedWith": [
@@ -1563,6 +1855,21 @@
     "mnemonic": "Cherry blossoms bloom in spring.",
     "priorDifficulty": 0.3
   },
+  "blot": {
+    "confusedWith": [
+      "blond",
+      "bolt"
+    ],
+    "mnemonic": "A blot of ink blocks the view.",
+    "priorDifficulty": 0.5
+  },
+  "blunt": {
+    "confusedWith": [
+      "blend"
+    ],
+    "mnemonic": "A blunt knife cannot cut.",
+    "priorDifficulty": 0.5
+  },
   "blur": {
     "confusedWith": [
       "blunt",
@@ -1584,6 +1891,11 @@
       "boost"
     ],
     "mnemonic": "Boast about what you roast.",
+    "priorDifficulty": 0.5
+  },
+  "bodily": {
+    "confusedWith": [],
+    "mnemonic": "Bodily relates to the human body.",
     "priorDifficulty": 0.5
   },
   "bodyguard": {
@@ -1616,6 +1928,11 @@
     "mnemonic": "BONUS is extra cash given for good work.",
     "priorDifficulty": 0.3
   },
+  "booklet": {
+    "confusedWith": [],
+    "mnemonic": "A booklet is a little book.",
+    "priorDifficulty": 0.3
+  },
   "boom": {
     "confusedWith": [
       "bloom",
@@ -1644,6 +1961,18 @@
     "confusedWith": [],
     "mnemonic": "BORED state creates deep BOREDOM.",
     "priorDifficulty": 0.35
+  },
+  "bosom": {
+    "confusedWith": [],
+    "mnemonic": "Keep it close to your bosom (chest).",
+    "priorDifficulty": 0.6
+  },
+  "boulevard": {
+    "confusedWith": [
+      "bulletin"
+    ],
+    "mnemonic": "Drive down the wide boulevard.",
+    "priorDifficulty": 0.7
   },
   "bounce": {
     "confusedWith": [
@@ -1674,10 +2003,50 @@
     "mnemonic": "A BOXER punches in the boxing ring.",
     "priorDifficulty": 0.25
   },
+  "boxing": {
+    "confusedWith": [],
+    "mnemonic": "Boxing is a sport throwing punches.",
+    "priorDifficulty": 0.3
+  },
+  "boycott": {
+    "confusedWith": [],
+    "mnemonic": "Boycott means to buy-not.",
+    "priorDifficulty": 0.6
+  },
+  "bra": {
+    "confusedWith": [],
+    "mnemonic": "Short for brassiere.",
+    "priorDifficulty": 0.4
+  },
+  "brace": {
+    "confusedWith": [],
+    "mnemonic": "Brace yourself for impact.",
+    "priorDifficulty": 0.5
+  },
   "bracelet": {
     "confusedWith": [],
     "mnemonic": "A brace on your wrist forms a bracelet.",
     "priorDifficulty": 0.3
+  },
+  "brassiere": {
+    "confusedWith": [
+      "bra",
+      "barrier"
+    ],
+    "mnemonic": "Brassiere is the formal word for bra.",
+    "priorDifficulty": 0.8
+  },
+  "breadth": {
+    "confusedWith": [],
+    "mnemonic": "Breadth is the width or scope.",
+    "priorDifficulty": 0.7
+  },
+  "breakdown": {
+    "confusedWith": [
+      "breakup"
+    ],
+    "mnemonic": "A breakdown of data or machinery.",
+    "priorDifficulty": 0.4
   },
   "breakthrough": {
     "confusedWith": [
@@ -1687,10 +2056,23 @@
     "mnemonic": "BREAK THROUGH barriers to reach a discovery.",
     "priorDifficulty": 0.45
   },
+  "breakup": {
+    "confusedWith": [
+      "breakdown",
+      "makeup"
+    ],
+    "mnemonic": "A breakup ends a relationship.",
+    "priorDifficulty": 0.4
+  },
   "breed": {
     "confusedWith": [],
     "mnemonic": "Dogs breed to produce puppies.",
     "priorDifficulty": 0.4
+  },
+  "bribe": {
+    "confusedWith": [],
+    "mnemonic": "Give a bribe to buy silence.",
+    "priorDifficulty": 0.5
   },
   "bridegroom": {
     "confusedWith": [
@@ -1706,6 +2088,26 @@
     "mnemonic": "Keep BRIEF business documents in a CASE.",
     "priorDifficulty": 0.35
   },
+  "brink": {
+    "confusedWith": [],
+    "mnemonic": "On the brink of disaster.",
+    "priorDifficulty": 0.6
+  },
+  "broaden": {
+    "confusedWith": [],
+    "mnemonic": "Broaden your horizons by reading.",
+    "priorDifficulty": 0.5
+  },
+  "brochure": {
+    "confusedWith": [],
+    "mnemonic": "A brochure gives travel info.",
+    "priorDifficulty": 0.6
+  },
+  "broil": {
+    "confusedWith": [],
+    "mnemonic": "Broil meat with high heat.",
+    "priorDifficulty": 0.5
+  },
   "broke": {
     "confusedWith": [],
     "mnemonic": "He spent all his money and went broke.",
@@ -1718,6 +2120,11 @@
     "mnemonic": "BRONZE medal is given for third place.",
     "priorDifficulty": 0.45
   },
+  "brook": {
+    "confusedWith": [],
+    "mnemonic": "A small stream is a brook.",
+    "priorDifficulty": 0.5
+  },
   "broom": {
     "confusedWith": [
       "bloom",
@@ -1725,6 +2132,16 @@
     ],
     "mnemonic": "Use a broom to sweep the room.",
     "priorDifficulty": 0.2
+  },
+  "broth": {
+    "confusedWith": [],
+    "mnemonic": "Soup starts with flavorful broth.",
+    "priorDifficulty": 0.5
+  },
+  "brotherhood": {
+    "confusedWith": [],
+    "mnemonic": "Brotherhood links brothers together.",
+    "priorDifficulty": 0.4
   },
   "browse": {
     "confusedWith": [
@@ -1752,6 +2169,11 @@
     ],
     "mnemonic": "Bulk sounds like a heavy Hulk, referring to massive size.",
     "priorDifficulty": 0.4
+  },
+  "bulky": {
+    "confusedWith": [],
+    "mnemonic": "Bulky packages are hard to carry.",
+    "priorDifficulty": 0.5
   },
   "bulletin": {
     "confusedWith": [],
@@ -1782,6 +2204,13 @@
     "mnemonic": "Bureau (office) + cracy (government rule) = red-tape government system.",
     "priorDifficulty": 0.75
   },
+  "bureaucrat": {
+    "confusedWith": [
+      "democrat"
+    ],
+    "mnemonic": "Bureaucrats love red tape.",
+    "priorDifficulty": 0.8
+  },
   "burglar": {
     "confusedWith": [
       "beggar",
@@ -1802,10 +2231,24 @@
     "mnemonic": "A butcher cuts butter-soft meat with sharp knives.",
     "priorDifficulty": 0.4
   },
+  "bypass": {
+    "confusedWith": [
+      "compass"
+    ],
+    "mnemonic": "Bypass the traffic by taking a shortcut.",
+    "priorDifficulty": 0.5
+  },
   "cabinet": {
     "confusedWith": [],
     "mnemonic": "Store small cups inside the kitchen cabinet.",
     "priorDifficulty": 0.3
+  },
+  "caffeine": {
+    "confusedWith": [
+      "protein"
+    ],
+    "mnemonic": "Caffeine keeps you awake.",
+    "priorDifficulty": 0.6
   },
   "calcium": {
     "confusedWith": [],
@@ -1827,6 +2270,20 @@
     ],
     "mnemonic": "A calculation requires accurate math.",
     "priorDifficulty": 0.3
+  },
+  "calculator": {
+    "confusedWith": [
+      "calculate"
+    ],
+    "mnemonic": "Use a calculator for math.",
+    "priorDifficulty": 0.3
+  },
+  "calligraphy": {
+    "confusedWith": [
+      "biography"
+    ],
+    "mnemonic": "Calligraphy is beautiful handwriting.",
+    "priorDifficulty": 0.7
   },
   "calorie": {
     "confusedWith": [
@@ -1887,6 +2344,11 @@
     "mnemonic": "Capacity measures how much a container can hold.",
     "priorDifficulty": 0.5
   },
+  "cape": {
+    "confusedWith": [],
+    "mnemonic": "Superheroes wear a cape.",
+    "priorDifficulty": 0.4
+  },
   "capitalism": {
     "confusedWith": [
       "capitalist"
@@ -1901,10 +2363,54 @@
     "mnemonic": "A capitalist invests capital to gain profit.",
     "priorDifficulty": 0.5
   },
+  "capsule": {
+    "confusedWith": [],
+    "mnemonic": "Swallow the medicine capsule.",
+    "priorDifficulty": 0.6
+  },
+  "caption": {
+    "confusedWith": [
+      "caution"
+    ],
+    "mnemonic": "Read the caption under the photo.",
+    "priorDifficulty": 0.5
+  },
+  "captive": {
+    "confusedWith": [],
+    "mnemonic": "The captive was held in chains.",
+    "priorDifficulty": 0.6
+  },
+  "captivity": {
+    "confusedWith": [
+      "capacity"
+    ],
+    "mnemonic": "Born in captivity, away from the wild.",
+    "priorDifficulty": 0.7
+  },
   "carbon": {
     "confusedWith": [],
     "mnemonic": "Car-bon footprint relates to carbon dioxide emissions from cars.",
     "priorDifficulty": 0.35
+  },
+  "cardboard": {
+    "confusedWith": [],
+    "mnemonic": "Boxes are made of cardboard.",
+    "priorDifficulty": 0.4
+  },
+  "cardinal": {
+    "confusedWith": [],
+    "mnemonic": "Cardinal rules are of primary importance.",
+    "priorDifficulty": 0.6
+  },
+  "carefree": {
+    "confusedWith": [],
+    "mnemonic": "Carefree youth without worries.",
+    "priorDifficulty": 0.3
+  },
+  "caretaker": {
+    "confusedWith": [],
+    "mnemonic": "A caretaker looks after a house.",
+    "priorDifficulty": 0.4
   },
   "cargo": {
     "confusedWith": [
@@ -1925,6 +2431,11 @@
     "mnemonic": "A carrier carries packages to your door.",
     "priorDifficulty": 0.3
   },
+  "carton": {
+    "confusedWith": [],
+    "mnemonic": "Milk comes in a paper carton.",
+    "priorDifficulty": 0.4
+  },
   "carve": {
     "confusedWith": [
       "curve"
@@ -1932,10 +2443,25 @@
     "mnemonic": "Carve wood with a sharp knife.",
     "priorDifficulty": 0.4
   },
+  "cashier": {
+    "confusedWith": [
+      "cushion"
+    ],
+    "mnemonic": "Pay the cashier at the checkout.",
+    "priorDifficulty": 0.4
+  },
   "casino": {
     "confusedWith": [],
     "mnemonic": "In a casino, you gamble cash in slot machines.",
     "priorDifficulty": 0.3
+  },
+  "casualty": {
+    "confusedWith": [
+      "catastrophe",
+      "penalty"
+    ],
+    "mnemonic": "War brings heavy casualties.",
+    "priorDifficulty": 0.7
   },
   "catalogue": {
     "confusedWith": [
@@ -1944,12 +2470,32 @@
     "mnemonic": "Browse the product catalogue to choose items.",
     "priorDifficulty": 0.5
   },
+  "catastrophe": {
+    "confusedWith": [
+      "casualty",
+      "category"
+    ],
+    "mnemonic": "A catastrophe is a major disaster.",
+    "priorDifficulty": 0.8
+  },
   "category": {
     "confusedWith": [
       "catalogue"
     ],
     "mnemonic": "Group items into the correct category.",
     "priorDifficulty": 0.4
+  },
+  "cater": {
+    "confusedWith": [],
+    "mnemonic": "Cater to the guests' needs.",
+    "priorDifficulty": 0.5
+  },
+  "caterpillar": {
+    "confusedWith": [
+      "calculator"
+    ],
+    "mnemonic": "A caterpillar turns into a butterfly.",
+    "priorDifficulty": 0.6
   },
   "cathedral": {
     "confusedWith": [
@@ -1972,6 +2518,14 @@
     "mnemonic": "A cautious person acts with caution.",
     "priorDifficulty": 0.4
   },
+  "cavity": {
+    "confusedWith": [
+      "capacity",
+      "curiosity"
+    ],
+    "mnemonic": "Brush teeth to avoid a dental cavity.",
+    "priorDifficulty": 0.5
+  },
   "cease": {
     "confusedWith": [
       "seize",
@@ -1993,6 +2547,11 @@
     ],
     "mnemonic": "A celebrity is a famous person who causes a celebration.",
     "priorDifficulty": 0.35
+  },
+  "celery": {
+    "confusedWith": [],
+    "mnemonic": "Celery is a crunchy green vegetable.",
+    "priorDifficulty": 0.5
   },
   "cellular": {
     "confusedWith": [
@@ -4531,6 +5090,11 @@
     "mnemonic": "Check the departure board at the airport.",
     "priorDifficulty": 0.4
   },
+  "dependent": {
+    "confusedWith": [],
+    "mnemonic": "De-pend-ent: hanging down from someone else for support.",
+    "priorDifficulty": 0.4
+  },
   "depict": {
     "confusedWith": [],
     "mnemonic": "To depict is to show or represent in a picture or story.",
@@ -4550,6 +5114,13 @@
     "confusedWith": [],
     "mnemonic": "To depress is to make someone feel very sad or press down.",
     "priorDifficulty": 0.4
+  },
+  "depression": {
+    "confusedWith": [
+      "impression"
+    ],
+    "mnemonic": "Press down your mood into a depression.",
+    "priorDifficulty": 0.5
   },
   "deprive": {
     "confusedWith": [
@@ -4590,10 +5161,22 @@
     "mnemonic": "Descriptive words paint a clear picture with details.",
     "priorDifficulty": 0.5
   },
+  "deserve": {
+    "confusedWith": [
+      "preserve"
+    ],
+    "mnemonic": "You serve well, so you de-serve the reward.",
+    "priorDifficulty": 0.3
+  },
   "despair": {
     "confusedWith": [],
     "mnemonic": "Despair is the complete loss of hope.",
     "priorDifficulty": 0.5
+  },
+  "desperate": {
+    "confusedWith": [],
+    "mnemonic": "Desperate people cry 'SOS!' inside de-spate.",
+    "priorDifficulty": 0.6
   },
   "despise": {
     "confusedWith": [
@@ -4602,6 +5185,11 @@
     ],
     "mnemonic": "Despise means to hate strongly.",
     "priorDifficulty": 0.6
+  },
+  "despite": {
+    "confusedWith": [],
+    "mnemonic": "De-spite means in spite of, like a spiteful obstacle.",
+    "priorDifficulty": 0.4
   },
   "destination": {
     "confusedWith": [
@@ -4625,6 +5213,13 @@
     "mnemonic": "Destiny is your predetermined fate.",
     "priorDifficulty": 0.5
   },
+  "destruction": {
+    "confusedWith": [
+      "construction"
+    ],
+    "mnemonic": "De- struct-ion: tearing down a structure.",
+    "priorDifficulty": 0.4
+  },
   "destructive": {
     "confusedWith": [
       "descriptive"
@@ -4646,6 +5241,11 @@
     "mnemonic": "Police detain suspects.",
     "priorDifficulty": 0.65
   },
+  "detective": {
+    "confusedWith": [],
+    "mnemonic": "Detectives detect clues.",
+    "priorDifficulty": 0.3
+  },
   "detention": {
     "confusedWith": [
       "intention"
@@ -4665,6 +5265,30 @@
     "mnemonic": "Use detergent to wash clothes.",
     "priorDifficulty": 0.65
   },
+  "determination": {
+    "confusedWith": [],
+    "mnemonic": "Determined people terminate all doubts.",
+    "priorDifficulty": 0.5
+  },
+  "device": {
+    "confusedWith": [
+      "devise"
+    ],
+    "mnemonic": "Device is a noun with a 'c'; devise is a verb with an 's'.",
+    "priorDifficulty": 0.4
+  },
+  "devise": {
+    "confusedWith": [
+      "device"
+    ],
+    "mnemonic": "Devise a plan using your brain.",
+    "priorDifficulty": 0.5
+  },
+  "devote": {
+    "confusedWith": [],
+    "mnemonic": "De-vote your life to your passion.",
+    "priorDifficulty": 0.4
+  },
   "devotion": {
     "confusedWith": [],
     "mnemonic": "Devotion is deep love and loyalty to someone.",
@@ -4676,6 +5300,11 @@
     ],
     "mnemonic": "Devour food like a hungry monster.",
     "priorDifficulty": 0.6
+  },
+  "dew": {
+    "confusedWith": [],
+    "mnemonic": "Morning dew looks new.",
+    "priorDifficulty": 0.2
   },
   "diabetes": {
     "confusedWith": [
@@ -4696,6 +5325,11 @@
     ],
     "mnemonic": "Diag-no-sis: doctor's nose-sis (knows is) what sickness you have.",
     "priorDifficulty": 0.7
+  },
+  "diagram": {
+    "confusedWith": [],
+    "mnemonic": "Dia-gram: drawing a graph or chart.",
+    "priorDifficulty": 0.3
   },
   "dialect": {
     "confusedWith": [],
@@ -4745,12 +5379,22 @@
     "mnemonic": "Diesel is a type of fuel.",
     "priorDifficulty": 0.6
   },
+  "differ": {
+    "confusedWith": [],
+    "mnemonic": "Dif-fer: to be different from.",
+    "priorDifficulty": 0.2
+  },
   "differentiate": {
     "confusedWith": [
       "distinguish"
     ],
     "mnemonic": "Differentiate between right and wrong.",
     "priorDifficulty": 0.75
+  },
+  "digest": {
+    "confusedWith": [],
+    "mnemonic": "Dig-est food in your stomach.",
+    "priorDifficulty": 0.4
   },
   "digestion": {
     "confusedWith": [
@@ -4759,10 +5403,34 @@
     "mnemonic": "Digest-ion: action of processing food in the tummy.",
     "priorDifficulty": 0.6
   },
+  "digital": {
+    "confusedWith": [
+      "initial"
+    ],
+    "mnemonic": "Digit means finger or number; digital uses screens.",
+    "priorDifficulty": 0.3
+  },
+  "dignity": {
+    "confusedWith": [],
+    "mnemonic": "Dig-nity: keeping your head high with self-respect.",
+    "priorDifficulty": 0.5
+  },
   "dilemma": {
     "confusedWith": [],
     "mnemonic": "Di-lemma: two tough choices to lean on.",
     "priorDifficulty": 0.6
+  },
+  "diligence": {
+    "confusedWith": [
+      "intelligence"
+    ],
+    "mnemonic": "Diligent students work hard daily.",
+    "priorDifficulty": 0.6
+  },
+  "diligent": {
+    "confusedWith": [],
+    "mnemonic": "Diligent workers dig into their tasks.",
+    "priorDifficulty": 0.5
   },
   "dimension": {
     "confusedWith": [],
@@ -4774,12 +5442,26 @@
     "mnemonic": "Di-min-ish: make it mini, make it smaller.",
     "priorDifficulty": 0.6
   },
+  "diploma": {
+    "confusedWith": [
+      "diplomat"
+    ],
+    "mnemonic": "You get a diploma upon graduation.",
+    "priorDifficulty": 0.4
+  },
   "diplomacy": {
     "confusedWith": [
       "diploma"
     ],
     "mnemonic": "Diplomacy avoids international conflict.",
     "priorDifficulty": 0.7
+  },
+  "diplomat": {
+    "confusedWith": [
+      "diploma"
+    ],
+    "mnemonic": "A diplomat carries a diploma to negotiate.",
+    "priorDifficulty": 0.5
   },
   "diplomatic": {
     "confusedWith": [],
@@ -4799,6 +5481,11 @@
     "mnemonic": "Direct-ory points you in the right direction.",
     "priorDifficulty": 0.5
   },
+  "disability": {
+    "confusedWith": [],
+    "mnemonic": "Dis-ability: opposite of ability.",
+    "priorDifficulty": 0.4
+  },
   "disable": {
     "confusedWith": [
       "disability"
@@ -4806,10 +5493,34 @@
     "mnemonic": "Disable means to turn off or impair.",
     "priorDifficulty": 0.45
   },
+  "disadvantage": {
+    "confusedWith": [],
+    "mnemonic": "Dis-advantage: not an advantage.",
+    "priorDifficulty": 0.3
+  },
+  "disappoint": {
+    "confusedWith": [
+      "appoint"
+    ],
+    "mnemonic": "Dis-appoint: failing to meet expectations.",
+    "priorDifficulty": 0.3
+  },
+  "disappointment": {
+    "confusedWith": [
+      "appointment"
+    ],
+    "mnemonic": "A disappointing appointment brings sadness.",
+    "priorDifficulty": 0.4
+  },
   "disapprove": {
     "confusedWith": [],
     "mnemonic": "Dis-approve: opposite of giving approval.",
     "priorDifficulty": 0.5
+  },
+  "disaster": {
+    "confusedWith": [],
+    "mnemonic": "Dis-aster: bad star alignment causing ruin.",
+    "priorDifficulty": 0.3
   },
   "disastrous": {
     "confusedWith": [
@@ -4851,6 +5562,11 @@
     "mnemonic": "Disciplinary action for bad behavior.",
     "priorDifficulty": 0.75
   },
+  "discipline": {
+    "confusedWith": [],
+    "mnemonic": "Dis-ci-pline: strict training and rules.",
+    "priorDifficulty": 0.5
+  },
   "disclose": {
     "confusedWith": [],
     "mnemonic": "Dis-close: opposite of close, opening up a secret.",
@@ -4873,6 +5589,16 @@
     "confusedWith": [],
     "mnemonic": "Dis-connect: breaking the connection.",
     "priorDifficulty": 0.4
+  },
+  "discourage": {
+    "confusedWith": [],
+    "mnemonic": "Dis-courage: taking away courage.",
+    "priorDifficulty": 0.4
+  },
+  "discouragement": {
+    "confusedWith": [],
+    "mnemonic": "Discouragement makes you want to quit.",
+    "priorDifficulty": 0.5
   },
   "discourse": {
     "confusedWith": [],
@@ -4904,12 +5630,36 @@
     "mnemonic": "Bring disgrace to the family name.",
     "priorDifficulty": 0.55
   },
+  "disguise": {
+    "confusedWith": [
+      "disgust"
+    ],
+    "mnemonic": "Disguise your face with a mask.",
+    "priorDifficulty": 0.4
+  },
+  "disgust": {
+    "confusedWith": [
+      "disguise"
+    ],
+    "mnemonic": "Dis-gust: makes your stomach turn in sickness.",
+    "priorDifficulty": 0.4
+  },
   "dismay": {
     "confusedWith": [
       "dismiss"
     ],
     "mnemonic": "To my dismay, I failed the test.",
     "priorDifficulty": 0.65
+  },
+  "dismiss": {
+    "confusedWith": [],
+    "mnemonic": "Dis-miss: send them away.",
+    "priorDifficulty": 0.3
+  },
+  "disorder": {
+    "confusedWith": [],
+    "mnemonic": "Dis-order: lack of order or chaos.",
+    "priorDifficulty": 0.3
   },
   "dispensable": {
     "confusedWith": [
@@ -4949,6 +5699,13 @@
     "mnemonic": "Dis-pose: putting trash in its proper pose.",
     "priorDifficulty": 0.5
   },
+  "dispute": {
+    "confusedWith": [
+      "compute"
+    ],
+    "mnemonic": "Dis-pute: arguing over a point.",
+    "priorDifficulty": 0.5
+  },
   "disrupt": {
     "confusedWith": [],
     "mnemonic": "Dis-rupt: breaking up the flow rudely.",
@@ -4968,6 +5725,13 @@
     "mnemonic": "Dis-solve: sugar in water melting away.",
     "priorDifficulty": 0.6
   },
+  "distinct": {
+    "confusedWith": [
+      "extinct"
+    ],
+    "mnemonic": "Dis-tinct: clearly separate and different.",
+    "priorDifficulty": 0.4
+  },
   "distinction": {
     "confusedWith": [],
     "mnemonic": "Dis-tinc-tion: distinct features that stand out.",
@@ -4979,6 +5743,16 @@
     ],
     "mnemonic": "Distinct-ive: easy to distinguish from others.",
     "priorDifficulty": 0.65
+  },
+  "distinguish": {
+    "confusedWith": [],
+    "mnemonic": "Dis-tinguish between right and wrong.",
+    "priorDifficulty": 0.6
+  },
+  "distinguished": {
+    "confusedWith": [],
+    "mnemonic": "A distinguished person stands out famously.",
+    "priorDifficulty": 0.6
   },
   "distract": {
     "confusedWith": [],
@@ -5000,12 +5774,45 @@
     "mnemonic": "Dis-stress: extreme mental stress and pain.",
     "priorDifficulty": 0.5
   },
+  "distribute": {
+    "confusedWith": [
+      "contribute"
+    ],
+    "mnemonic": "Dis-tribute: hand things out to everyone.",
+    "priorDifficulty": 0.4
+  },
+  "distribution": {
+    "confusedWith": [
+      "contribution"
+    ],
+    "mnemonic": "The distribution of goods across stores.",
+    "priorDifficulty": 0.5
+  },
+  "district": {
+    "confusedWith": [],
+    "mnemonic": "Dis-trict: a specific area or neighborhood.",
+    "priorDifficulty": 0.3
+  },
+  "disturb": {
+    "confusedWith": [
+      "disrupt"
+    ],
+    "mnemonic": "Dis-turb: interrupting someone's peace.",
+    "priorDifficulty": 0.3
+  },
   "disturbance": {
     "confusedWith": [
       "disturb"
     ],
     "mnemonic": "Dis-turb-ance: a turbulent interruption.",
     "priorDifficulty": 0.5
+  },
+  "diverse": {
+    "confusedWith": [
+      "reverse"
+    ],
+    "mnemonic": "Di-verse: showing a great deal of variety.",
+    "priorDifficulty": 0.4
   },
   "diversify": {
     "confusedWith": [
@@ -5023,6 +5830,11 @@
     "mnemonic": "Di-ver-sion: turning aside for fun.",
     "priorDifficulty": 0.6
   },
+  "diversity": {
+    "confusedWith": [],
+    "mnemonic": "Di-versity means a variety of different things.",
+    "priorDifficulty": 0.5
+  },
   "divert": {
     "confusedWith": [
       "diversion",
@@ -5035,6 +5847,18 @@
     "confusedWith": [],
     "mnemonic": "Divi-dend: a share of profits divided.",
     "priorDifficulty": 0.7
+  },
+  "divine": {
+    "confusedWith": [],
+    "mnemonic": "Di-vine: heavenly and godlike.",
+    "priorDifficulty": 0.4
+  },
+  "divorce": {
+    "confusedWith": [
+      "device"
+    ],
+    "mnemonic": "Di-vorce: legally ending a marriage.",
+    "priorDifficulty": 0.3
   },
   "doctrine": {
     "confusedWith": [],
@@ -7314,11 +8138,25 @@
     "mnemonic": "Genetics is the scientific study of heredity and genes.",
     "priorDifficulty": 0.45
   },
+  "genius": {
+    "confusedWith": [
+      "genuine"
+    ],
+    "mnemonic": "A genius has a GENIal USer brain.",
+    "priorDifficulty": 0.3
+  },
   "genre": {
     "confusedWith": [
       "gender"
     ],
     "mnemonic": "Genre is a specific category of art, film, or music.",
+    "priorDifficulty": 0.6
+  },
+  "genuine": {
+    "confusedWith": [
+      "genius"
+    ],
+    "mnemonic": "GENUINE means real, ge-NU-ine.",
     "priorDifficulty": 0.6
   },
   "geographical": {
@@ -7335,6 +8173,31 @@
     ],
     "mnemonic": "Geo (earth) + metry (measure) = branch of math dealing with shapes.",
     "priorDifficulty": 0.5
+  },
+  "germ": {
+    "confusedWith": [],
+    "mnemonic": "Germs make you sick.",
+    "priorDifficulty": 0.2
+  },
+  "gifted": {
+    "confusedWith": [],
+    "mnemonic": "Gifted students get gifts.",
+    "priorDifficulty": 0.2
+  },
+  "gigantic": {
+    "confusedWith": [],
+    "mnemonic": "Gigantic starts with G for giant.",
+    "priorDifficulty": 0.4
+  },
+  "giggle": {
+    "confusedWith": [],
+    "mnemonic": "Giggle sounds like a soft laugh.",
+    "priorDifficulty": 0.3
+  },
+  "ginger": {
+    "confusedWith": [],
+    "mnemonic": "Ginger is a spicy root.",
+    "priorDifficulty": 0.4
   },
   "glacier": {
     "confusedWith": [],
@@ -7381,6 +8244,11 @@
     "mnemonic": "Birds glide smoothly through smooth air currents.",
     "priorDifficulty": 0.5
   },
+  "glimpse": {
+    "confusedWith": [],
+    "mnemonic": "Glimpse is a quick look.",
+    "priorDifficulty": 0.5
+  },
   "glitter": {
     "confusedWith": [
       "gleam",
@@ -7388,6 +8256,11 @@
     ],
     "mnemonic": "Gold stars glitter brightly on decorations.",
     "priorDifficulty": 0.4
+  },
+  "globe": {
+    "confusedWith": [],
+    "mnemonic": "Globe is a round ball.",
+    "priorDifficulty": 0.2
   },
   "gloom": {
     "confusedWith": [
@@ -7405,9 +8278,19 @@
     "mnemonic": "Gloomy weather is dark, depressing, and dismal.",
     "priorDifficulty": 0.4
   },
+  "glorious": {
+    "confusedWith": [],
+    "mnemonic": "Glorious comes from glory.",
+    "priorDifficulty": 0.4
+  },
   "goalkeeper": {
     "confusedWith": [],
     "mnemonic": "Goal + keeper: the player keeping opponent shots out of goal.",
+    "priorDifficulty": 0.2
+  },
+  "goods": {
+    "confusedWith": [],
+    "mnemonic": "Goods are items for sale.",
     "priorDifficulty": 0.2
   },
   "goodwill": {
@@ -7433,6 +8316,45 @@
     "mnemonic": "Gospel means good news, especially religious teachings.",
     "priorDifficulty": 0.6
   },
+  "gown": {
+    "confusedWith": [],
+    "mnemonic": "A gown is a long dress.",
+    "priorDifficulty": 0.4
+  },
+  "grace": {
+    "confusedWith": [],
+    "mnemonic": "Grace means elegance.",
+    "priorDifficulty": 0.3
+  },
+  "graceful": {
+    "confusedWith": [],
+    "mnemonic": "Graceful has grace full of it.",
+    "priorDifficulty": 0.4
+  },
+  "gracious": {
+    "confusedWith": [
+      "graceful"
+    ],
+    "mnemonic": "Gracious means kind and polite.",
+    "priorDifficulty": 0.5
+  },
+  "graduation": {
+    "confusedWith": [],
+    "mnemonic": "Graduation ends with celebration.",
+    "priorDifficulty": 0.3
+  },
+  "grammar": {
+    "confusedWith": [],
+    "mnemonic": "Grammar has two m's.",
+    "priorDifficulty": 0.3
+  },
+  "grammatical": {
+    "confusedWith": [
+      "grammar"
+    ],
+    "mnemonic": "Grammatical relates to grammar rules.",
+    "priorDifficulty": 0.5
+  },
   "grant": {
     "confusedWith": [
       "guarantee"
@@ -7445,12 +8367,34 @@
     "mnemonic": "Grape + fruit: a large citrus fruit that grows in clusters like grapes.",
     "priorDifficulty": 0.3
   },
+  "graph": {
+    "confusedWith": [],
+    "mnemonic": "Graph shows data visually.",
+    "priorDifficulty": 0.2
+  },
   "graphic": {
     "confusedWith": [
       "graph"
     ],
     "mnemonic": "Graphic art creates clear and vivid visual images.",
     "priorDifficulty": 0.35
+  },
+  "grateful": {
+    "confusedWith": [],
+    "mnemonic": "Grateful means feeling thank-ful.",
+    "priorDifficulty": 0.4
+  },
+  "gratitude": {
+    "confusedWith": [
+      "grateful"
+    ],
+    "mnemonic": "Gratitude is the state of being grateful.",
+    "priorDifficulty": 0.6
+  },
+  "grave": {
+    "confusedWith": [],
+    "mnemonic": "Grave can mean serious or a tomb.",
+    "priorDifficulty": 0.4
   },
   "gravity": {
     "confusedWith": [
@@ -7476,12 +8420,27 @@
     "mnemonic": "Grease makes gears ease into motion smoothly.",
     "priorDifficulty": 0.55
   },
+  "greasy": {
+    "confusedWith": [],
+    "mnemonic": "Greasy food has grease.",
+    "priorDifficulty": 0.3
+  },
   "greed": {
     "confusedWith": [
       "grief"
     ],
     "mnemonic": "Greed is wanting far more wealth than needed.",
     "priorDifficulty": 0.4
+  },
+  "greeting": {
+    "confusedWith": [],
+    "mnemonic": "Greeting is saying hello.",
+    "priorDifficulty": 0.3
+  },
+  "grief": {
+    "confusedWith": [],
+    "mnemonic": "Grief brings deep sadness.",
+    "priorDifficulty": 0.5
   },
   "grieve": {
     "confusedWith": [
@@ -7506,6 +8465,11 @@
     "mnemonic": "A grim (gloomy) face looks like it is missing a smile.",
     "priorDifficulty": 0.6
   },
+  "grind": {
+    "confusedWith": [],
+    "mnemonic": "Grind coffee beans into powder.",
+    "priorDifficulty": 0.4
+  },
   "grip": {
     "confusedWith": [],
     "mnemonic": "To grip is to grab tightly with your fingers.",
@@ -7519,6 +8483,11 @@
     ],
     "mnemonic": "An O inside groan shows open-mouthed painful groaning.",
     "priorDifficulty": 0.6
+  },
+  "groom": {
+    "confusedWith": [],
+    "mnemonic": "A groom is a man getting married.",
+    "priorDifficulty": 0.4
   },
   "gross": {
     "confusedWith": [],
@@ -7541,11 +8510,40 @@
     "mnemonic": "Your stomach grumbles when it rumble-wants food.",
     "priorDifficulty": 0.6
   },
+  "guarantee": {
+    "confusedWith": [],
+    "mnemonic": "Guarantee means a promise of quality.",
+    "priorDifficulty": 0.6
+  },
+  "guardian": {
+    "confusedWith": [],
+    "mnemonic": "A guardian protects you.",
+    "priorDifficulty": 0.5
+  },
   "guideline": {
     "confusedWith": [
       "deadline"
     ],
     "mnemonic": "A guideline guides you on the line you should follow.",
+    "priorDifficulty": 0.4
+  },
+  "guilt": {
+    "confusedWith": [
+      "guilty"
+    ],
+    "mnemonic": "Guilt is the feeling of doing wrong.",
+    "priorDifficulty": 0.4
+  },
+  "guilty": {
+    "confusedWith": [
+      "guilt"
+    ],
+    "mnemonic": "Guilty means feeling the guilt.",
+    "priorDifficulty": 0.3
+  },
+  "gulf": {
+    "confusedWith": [],
+    "mnemonic": "A gulf is a large area of sea.",
     "priorDifficulty": 0.4
   },
   "gull": {
@@ -7566,6 +8564,11 @@
     "mnemonic": "A habitat is where animals live as a habit.",
     "priorDifficulty": 0.4
   },
+  "habitual": {
+    "confusedWith": [],
+    "mnemonic": "Habitual comes from habit.",
+    "priorDifficulty": 0.5
+  },
   "hacker": {
     "confusedWith": [
       "hijack"
@@ -7579,6 +8582,11 @@
     ],
     "mnemonic": "Ice drops hail down from high in the sky.",
     "priorDifficulty": 0.65
+  },
+  "halt": {
+    "confusedWith": [],
+    "mnemonic": "Halt means to stop.",
+    "priorDifficulty": 0.4
   },
   "hamper": {
     "confusedWith": [],
@@ -7596,6 +8604,11 @@
     "confusedWith": [],
     "mnemonic": "Crafting with your hands creates a handicraft.",
     "priorDifficulty": 0.5
+  },
+  "handwriting": {
+    "confusedWith": [],
+    "mnemonic": "Handwriting is writing by hand.",
+    "priorDifficulty": 0.3
   },
   "harass": {
     "confusedWith": [
@@ -7618,6 +8631,16 @@
     "mnemonic": "Hard plus en means to make something hard.",
     "priorDifficulty": 0.4
   },
+  "hardship": {
+    "confusedWith": [],
+    "mnemonic": "Hardship is a hard situation.",
+    "priorDifficulty": 0.5
+  },
+  "hardware": {
+    "confusedWith": [],
+    "mnemonic": "Hardware is physical computer parts.",
+    "priorDifficulty": 0.4
+  },
   "harmonica": {
     "confusedWith": [
       "harmony"
@@ -7625,12 +8648,39 @@
     "mnemonic": "Play a harmonica to create nice musical harmony.",
     "priorDifficulty": 0.45
   },
+  "harmony": {
+    "confusedWith": [],
+    "mnemonic": "Harmony means getting along well.",
+    "priorDifficulty": 0.4
+  },
   "harness": {
     "confusedWith": [
       "harass"
     ],
     "mnemonic": "Harness holds horses securely together.",
     "priorDifficulty": 0.65
+  },
+  "harsh": {
+    "confusedWith": [],
+    "mnemonic": "Harsh means very strict or rough.",
+    "priorDifficulty": 0.5
+  },
+  "haste": {
+    "confusedWith": [],
+    "mnemonic": "Haste makes waste.",
+    "priorDifficulty": 0.5
+  },
+  "hasten": {
+    "confusedWith": [
+      "haste"
+    ],
+    "mnemonic": "Hasten means to make haste.",
+    "priorDifficulty": 0.6
+  },
+  "hatred": {
+    "confusedWith": [],
+    "mnemonic": "Hatred is extreme hate.",
+    "priorDifficulty": 0.4
   },
   "haul": {
     "confusedWith": [],
@@ -7643,6 +8693,11 @@
     ],
     "mnemonic": "A ghost in a house haunts the halls.",
     "priorDifficulty": 0.55
+  },
+  "hawk": {
+    "confusedWith": [],
+    "mnemonic": "A hawk is a bird of prey.",
+    "priorDifficulty": 0.4
   },
   "hazard": {
     "confusedWith": [],
@@ -7687,6 +8742,11 @@
     "mnemonic": "The heir with blonde hair inherits the throne.",
     "priorDifficulty": 0.7
   },
+  "helicopter": {
+    "confusedWith": [],
+    "mnemonic": "Helicopter flies straight up.",
+    "priorDifficulty": 0.3
+  },
   "hemisphere": {
     "confusedWith": [
       "atmosphere",
@@ -7705,6 +8765,11 @@
       "herd"
     ],
     "mnemonic": "Herbs are healthy plants used in cooking.",
+    "priorDifficulty": 0.4
+  },
+  "herd": {
+    "confusedWith": [],
+    "mnemonic": "A herd of animals moving together.",
     "priorDifficulty": 0.4
   },
   "heritage": {
@@ -13343,6 +14408,13 @@
     "mnemonic": "Racism is unfair discrimination based on race.",
     "priorDifficulty": 0.3
   },
+  "rack": {
+    "confusedWith": [
+      "wreck"
+    ],
+    "mnemonic": "Put it on the rack, not the rock.",
+    "priorDifficulty": 0.4
+  },
   "radar": {
     "confusedWith": [],
     "mnemonic": "Radar detects planes using radio waves.",
@@ -13361,6 +14433,21 @@
     ],
     "mnemonic": "Radiate: sending out rays of light.",
     "priorDifficulty": 0.5
+  },
+  "radiation": {
+    "confusedWith": [
+      "radical"
+    ],
+    "mnemonic": "Radioactive rays cause radiation.",
+    "priorDifficulty": 0.6
+  },
+  "radical": {
+    "confusedWith": [
+      "radiation",
+      "ratio"
+    ],
+    "mnemonic": "Radical changes go to the root (radic).",
+    "priorDifficulty": 0.6
   },
   "radioactive": {
     "confusedWith": [
@@ -13388,6 +14475,27 @@
     "mnemonic": "Rage is a great and angry stage.",
     "priorDifficulty": 0.3
   },
+  "ragged": {
+    "confusedWith": [
+      "rugged"
+    ],
+    "mnemonic": "Ragged clothes are made of old rags.",
+    "priorDifficulty": 0.5
+  },
+  "raid": {
+    "confusedWith": [
+      "rail"
+    ],
+    "mnemonic": "Police raid a place fast.",
+    "priorDifficulty": 0.4
+  },
+  "rail": {
+    "confusedWith": [
+      "raid"
+    ],
+    "mnemonic": "Train runs on a steel rail.",
+    "priorDifficulty": 0.4
+  },
   "rainfall": {
     "confusedWith": [],
     "mnemonic": "Rain falling from the sky.",
@@ -13396,6 +14504,25 @@
   "raisin": {
     "confusedWith": [],
     "mnemonic": "Raisin sounds like reason, but it's a dried grape.",
+    "priorDifficulty": 0.4
+  },
+  "rally": {
+    "confusedWith": [
+      "relay"
+    ],
+    "mnemonic": "Rally together for a grand rally.",
+    "priorDifficulty": 0.5
+  },
+  "ranch": {
+    "confusedWith": [],
+    "mnemonic": "Ranch has horses and cows.",
+    "priorDifficulty": 0.4
+  },
+  "random": {
+    "confusedWith": [
+      "rhythm"
+    ],
+    "mnemonic": "Random means without any plan.",
     "priorDifficulty": 0.4
   },
   "rap": {
@@ -13413,6 +14540,30 @@
     "mnemonic": "Rati-fy: make it official, put a stamp on it.",
     "priorDifficulty": 0.7
   },
+  "ratio": {
+    "confusedWith": [
+      "rational"
+    ],
+    "mnemonic": "Ratio compares two numbers.",
+    "priorDifficulty": 0.5
+  },
+  "rational": {
+    "confusedWith": [
+      "ratio"
+    ],
+    "mnemonic": "Rational people use logic and reason.",
+    "priorDifficulty": 0.5
+  },
+  "rattle": {
+    "confusedWith": [],
+    "mnemonic": "Baby's toy will rattle and shake.",
+    "priorDifficulty": 0.5
+  },
+  "realism": {
+    "confusedWith": [],
+    "mnemonic": "Realism depicts things as they are.",
+    "priorDifficulty": 0.6
+  },
   "realistic": {
     "confusedWith": [],
     "mnemonic": "Realistic means seeing reality.",
@@ -13423,15 +14574,39 @@
     "mnemonic": "Realiza-tion: the moment you suddenly understand.",
     "priorDifficulty": 0.5
   },
+  "realm": {
+    "confusedWith": [],
+    "mnemonic": "The king rules his own realm.",
+    "priorDifficulty": 0.6
+  },
   "reap": {
     "confusedWith": [],
     "mnemonic": "Reap: harvest what you sow.",
     "priorDifficulty": 0.3
   },
+  "rear": {
+    "confusedWith": [],
+    "mnemonic": "Rear is the back part.",
+    "priorDifficulty": 0.4
+  },
+  "reassure": {
+    "confusedWith": [
+      "ensure"
+    ],
+    "mnemonic": "Re-assure someone to make them feel sure again.",
+    "priorDifficulty": 0.5
+  },
   "rebel": {
     "confusedWith": [],
     "mnemonic": "Rebels reveal their rebellion.",
     "priorDifficulty": 0.4
+  },
+  "rebellion": {
+    "confusedWith": [
+      "revolution"
+    ],
+    "mnemonic": "Rebels start a rebellion against rules.",
+    "priorDifficulty": 0.6
   },
   "recall": {
     "confusedWith": [],
@@ -13445,9 +14620,30 @@
     "mnemonic": "Receive guests at the reception.",
     "priorDifficulty": 0.5
   },
+  "recession": {
+    "confusedWith": [
+      "reception"
+    ],
+    "mnemonic": "A recession drops the economy down.",
+    "priorDifficulty": 0.6
+  },
   "recipe": {
     "confusedWith": [],
     "mnemonic": "A recipe tells you how to cook food.",
+    "priorDifficulty": 0.5
+  },
+  "recipient": {
+    "confusedWith": [
+      "resident"
+    ],
+    "mnemonic": "Recipient receives the prize.",
+    "priorDifficulty": 0.6
+  },
+  "recite": {
+    "confusedWith": [
+      "cite"
+    ],
+    "mnemonic": "Recite a poem aloud from memory.",
     "priorDifficulty": 0.5
   },
   "reckless": {
@@ -13465,6 +14661,18 @@
   "recognition": {
     "confusedWith": [],
     "mnemonic": "Recognize someone with cognition.",
+    "priorDifficulty": 0.6
+  },
+  "recommend": {
+    "confusedWith": [],
+    "mnemonic": "I recommend this good book to you.",
+    "priorDifficulty": 0.5
+  },
+  "recommendation": {
+    "confusedWith": [
+      "recommend"
+    ],
+    "mnemonic": "A formal recommendation from a teacher.",
     "priorDifficulty": 0.6
   },
   "reconcile": {
@@ -13489,6 +14697,13 @@
       "recreation"
     ],
     "mnemonic": "Recreation-al: meant for fun and games.",
+    "priorDifficulty": 0.5
+  },
+  "recruit": {
+    "confusedWith": [
+      "acute"
+    ],
+    "mnemonic": "Recruit new members for the team.",
     "priorDifficulty": 0.5
   },
   "recycle": {
@@ -13587,6 +14802,11 @@
     "mnemonic": "Refresh-ment: snacks and drinks.",
     "priorDifficulty": 0.3
   },
+  "refuge": {
+    "confusedWith": [],
+    "mnemonic": "Find a safe refuge from danger.",
+    "priorDifficulty": 0.5
+  },
   "refugee": {
     "confusedWith": [
       "referee"
@@ -13615,6 +14835,16 @@
     "confusedWith": [],
     "mnemonic": "Regarding means concerning.",
     "priorDifficulty": 0.4
+  },
+  "regardless": {
+    "confusedWith": [],
+    "mnemonic": "Regardless means paying no regard to obstacles.",
+    "priorDifficulty": 0.5
+  },
+  "regime": {
+    "confusedWith": [],
+    "mnemonic": "A strict political regime is in power.",
+    "priorDifficulty": 0.6
   },
   "register": {
     "confusedWith": [],
@@ -13645,6 +14875,13 @@
     "mnemonic": "Re-habilitate: restore to healthy life.",
     "priorDifficulty": 0.9
   },
+  "rehearsal": {
+    "confusedWith": [
+      "research"
+    ],
+    "mnemonic": "Rehearsal before the play starts.",
+    "priorDifficulty": 0.5
+  },
   "rehearse": {
     "confusedWith": [
       "reverse"
@@ -13656,6 +14893,11 @@
     "confusedWith": [],
     "mnemonic": "Reign: a king rules during his reign.",
     "priorDifficulty": 0.4
+  },
+  "reinforce": {
+    "confusedWith": [],
+    "mnemonic": "Reinforce walls to make them stronger.",
+    "priorDifficulty": 0.6
   },
   "rejection": {
     "confusedWith": [
@@ -13744,12 +14986,27 @@
     "mnemonic": "A remedy is a cure for a problem.",
     "priorDifficulty": 0.5
   },
+  "reminder": {
+    "confusedWith": [],
+    "mnemonic": "A reminder helps you remember.",
+    "priorDifficulty": 0.4
+  },
   "reminiscent": {
     "confusedWith": [
       "magnificent"
     ],
     "mnemonic": "Reminiscent makes you remember the past.",
     "priorDifficulty": 0.7
+  },
+  "removal": {
+    "confusedWith": [],
+    "mnemonic": "The removal of old furniture.",
+    "priorDifficulty": 0.5
+  },
+  "render": {
+    "confusedWith": [],
+    "mnemonic": "Render assistance to those in need.",
+    "priorDifficulty": 0.6
   },
   "renew": {
     "confusedWith": [],
@@ -13762,6 +15019,16 @@
     ],
     "mnemonic": "A renowned person is known all around.",
     "priorDifficulty": 0.5
+  },
+  "rental": {
+    "confusedWith": [],
+    "mnemonic": "Pay rental for a rented car.",
+    "priorDifficulty": 0.4
+  },
+  "repay": {
+    "confusedWith": [],
+    "mnemonic": "Repay the money you borrowed.",
+    "priorDifficulty": 0.4
   },
   "repetition": {
     "confusedWith": [
@@ -13789,6 +15056,11 @@
     "mnemonic": "Snakes and lizards are reptiles.",
     "priorDifficulty": 0.4
   },
+  "republican": {
+    "confusedWith": [],
+    "mnemonic": "Republican is a political party member.",
+    "priorDifficulty": 0.6
+  },
   "reputation": {
     "confusedWith": [
       "recreation"
@@ -13810,6 +15082,13 @@
     "confusedWith": [],
     "mnemonic": "One who does research.",
     "priorDifficulty": 0.4
+  },
+  "resemblance": {
+    "confusedWith": [
+      "resemble"
+    ],
+    "mnemonic": "A family resemblance in looks.",
+    "priorDifficulty": 0.6
   },
   "resemble": {
     "confusedWith": [
@@ -13839,10 +15118,36 @@
     "mnemonic": "Reserve a table or room.",
     "priorDifficulty": 0.5
   },
+  "reservoir": {
+    "confusedWith": [],
+    "mnemonic": "Reservoir stores drinking water.",
+    "priorDifficulty": 0.7
+  },
   "reside": {
     "confusedWith": [],
     "mnemonic": "You reside where you live inside a house.",
     "priorDifficulty": 0.3
+  },
+  "residence": {
+    "confusedWith": [
+      "resident"
+    ],
+    "mnemonic": "Your residence is where you reside.",
+    "priorDifficulty": 0.6
+  },
+  "resident": {
+    "confusedWith": [
+      "residence"
+    ],
+    "mnemonic": "A resident lives in this town.",
+    "priorDifficulty": 0.5
+  },
+  "residential": {
+    "confusedWith": [
+      "resident"
+    ],
+    "mnemonic": "Residential area has many houses.",
+    "priorDifficulty": 0.6
   },
   "resign": {
     "confusedWith": [],
@@ -13886,6 +15191,11 @@
     "mnemonic": "Re-solve a problem once and for all with strong resolve.",
     "priorDifficulty": 0.4
   },
+  "resort": {
+    "confusedWith": [],
+    "mnemonic": "Go to a beach resort for vacation.",
+    "priorDifficulty": 0.5
+  },
   "respectable": {
     "confusedWith": [
       "respectful",
@@ -13908,6 +15218,11 @@
       "respectable"
     ],
     "mnemonic": "Respective means belonging to each separately.",
+    "priorDifficulty": 0.6
+  },
+  "respondent": {
+    "confusedWith": [],
+    "mnemonic": "Survey respondent answers questions.",
     "priorDifficulty": 0.6
   },
   "restoration": {
@@ -13948,6 +15263,16 @@
     ],
     "mnemonic": "Strict rules place restrictions on what you can do.",
     "priorDifficulty": 0.4
+  },
+  "resume": {
+    "confusedWith": [],
+    "mnemonic": "Resume work after a short break.",
+    "priorDifficulty": 0.5
+  },
+  "retail": {
+    "confusedWith": [],
+    "mnemonic": "Retail shop sells goods to customers.",
+    "priorDifficulty": 0.5
   },
   "retain": {
     "confusedWith": [
@@ -14015,6 +15340,16 @@
       "renew"
     ],
     "mnemonic": "Get back at an enemy to avenge a wrong.",
+    "priorDifficulty": 0.5
+  },
+  "revenue": {
+    "confusedWith": [],
+    "mnemonic": "Government collects revenue from taxes.",
+    "priorDifficulty": 0.6
+  },
+  "reverse": {
+    "confusedWith": [],
+    "mnemonic": "Reverse the car into the garage.",
     "priorDifficulty": 0.5
   },
   "revise": {
@@ -14472,11 +15807,42 @@
     "mnemonic": "A script is written for actors to speak.",
     "priorDifficulty": 0.4
   },
+  "scroll": {
+    "confusedWith": [
+      "scramble",
+      "scrape",
+      "script"
+    ],
+    "mnemonic": "Scroll down the roll of paper.",
+    "priorDifficulty": 0.5
+  },
+  "scrutiny": {
+    "confusedWith": [
+      "sculpture",
+      "scandal"
+    ],
+    "mnemonic": "Scrutiny means close and careful inspection.",
+    "priorDifficulty": 0.7
+  },
+  "sculptor": {
+    "confusedWith": [
+      "sculpture"
+    ],
+    "mnemonic": "A sculptor carves statues.",
+    "priorDifficulty": 0.6
+  },
   "sculpture": {
     "confusedWith": [
       "sculptor"
     ],
     "mnemonic": "Sculpt + ure: 3D artwork carved out of stone or clay.",
+    "priorDifficulty": 0.4
+  },
+  "seagull": {
+    "confusedWith": [
+      "gull"
+    ],
+    "mnemonic": "Seagulls fly over the sea.",
     "priorDifficulty": 0.4
   },
   "sector": {
@@ -14492,6 +15858,11 @@
     "mnemonic": "Se-cure: completely safe and protected from harm.",
     "priorDifficulty": 0.4
   },
+  "seduce": {
+    "confusedWith": [],
+    "mnemonic": "Seduce someone to follow you.",
+    "priorDifficulty": 0.6
+  },
   "segment": {
     "confusedWith": [
       "sector"
@@ -14505,6 +15876,13 @@
       "siege"
     ],
     "mnemonic": "Grab hold of an opportunity quickly with force.",
+    "priorDifficulty": 0.5
+  },
+  "selective": {
+    "confusedWith": [
+      "collective"
+    ],
+    "mnemonic": "Selective people are very picky.",
     "priorDifficulty": 0.5
   },
   "seminar": {
@@ -14557,6 +15935,25 @@
     "mnemonic": "A sequence is a logical series of events.",
     "priorDifficulty": 0.55
   },
+  "serene": {
+    "confusedWith": [
+      "severe"
+    ],
+    "mnemonic": "Serene and peaceful like a scene.",
+    "priorDifficulty": 0.6
+  },
+  "sergeant": {
+    "confusedWith": [],
+    "mnemonic": "A sergeant in the army is a leader.",
+    "priorDifficulty": 0.7
+  },
+  "serial": {
+    "confusedWith": [
+      "severe"
+    ],
+    "mnemonic": "A serial killer has a series of crimes.",
+    "priorDifficulty": 0.5
+  },
   "series": {
     "confusedWith": [
       "sequence"
@@ -14564,15 +15961,34 @@
     "mnemonic": "A series is a set of similar things.",
     "priorDifficulty": 0.4
   },
+  "sermon": {
+    "confusedWith": [
+      "summon"
+    ],
+    "mnemonic": "Listen to the sermon in church.",
+    "priorDifficulty": 0.6
+  },
   "server": {
     "confusedWith": [],
     "mnemonic": "A server serves food or data.",
     "priorDifficulty": 0.35
   },
+  "serving": {
+    "confusedWith": [],
+    "mnemonic": "One serving of food on your plate.",
+    "priorDifficulty": 0.3
+  },
   "session": {
     "confusedWith": [],
     "mnemonic": "A session is a meeting period.",
     "priorDifficulty": 0.45
+  },
+  "setback": {
+    "confusedWith": [
+      "feedback"
+    ],
+    "mnemonic": "A setback sets you back in progress.",
+    "priorDifficulty": 0.4
   },
   "setting": {
     "confusedWith": [],
@@ -14600,6 +16016,11 @@
     ],
     "mnemonic": "Sew clothes using a small needle and thread.",
     "priorDifficulty": 0.4
+  },
+  "shabby": {
+    "confusedWith": [],
+    "mnemonic": "Shabby clothes look worn out.",
+    "priorDifficulty": 0.5
   },
   "shade": {
     "confusedWith": [
@@ -14629,6 +16050,11 @@
     "mnemonic": "A shareholder holds shares in a company.",
     "priorDifficulty": 0.7
   },
+  "sharpen": {
+    "confusedWith": [],
+    "mnemonic": "Sharpen your pencil to make it sharp.",
+    "priorDifficulty": 0.3
+  },
   "shatter": {
     "confusedWith": [
       "shutter"
@@ -14642,6 +16068,11 @@
     ],
     "mnemonic": "Shave off facial hair smoothly using a razor.",
     "priorDifficulty": 0.3
+  },
+  "shaver": {
+    "confusedWith": [],
+    "mnemonic": "Use a shaver to shave your beard.",
+    "priorDifficulty": 0.4
   },
   "shed": {
     "confusedWith": [],
@@ -14696,15 +16127,58 @@
     "mnemonic": "Shortage of water causes damage.",
     "priorDifficulty": 0.5
   },
+  "shortcoming": {
+    "confusedWith": [
+      "shortage"
+    ],
+    "mnemonic": "A shortcoming is a flaw or weakness.",
+    "priorDifficulty": 0.5
+  },
+  "shortsighted": {
+    "confusedWith": [
+      "nearsighted"
+    ],
+    "mnemonic": "Shortsighted means lacking foresight.",
+    "priorDifficulty": 0.5
+  },
   "shove": {
     "confusedWith": [],
     "mnemonic": "Shove with a shovel.",
     "priorDifficulty": 0.4
   },
+  "shred": {
+    "confusedWith": [
+      "shed"
+    ],
+    "mnemonic": "Shred documents into small pieces.",
+    "priorDifficulty": 0.5
+  },
+  "shriek": {
+    "confusedWith": [],
+    "mnemonic": "Shriek in sudden sharp terror.",
+    "priorDifficulty": 0.6
+  },
+  "shrub": {
+    "confusedWith": [],
+    "mnemonic": "A shrub is a small bush.",
+    "priorDifficulty": 0.5
+  },
   "shrug": {
     "confusedWith": [],
     "mnemonic": "Shrug your shoulders on the rug.",
     "priorDifficulty": 0.45
+  },
+  "shuffle": {
+    "confusedWith": [
+      "scramble"
+    ],
+    "mnemonic": "Shuffle the deck of cards.",
+    "priorDifficulty": 0.5
+  },
+  "shutter": {
+    "confusedWith": [],
+    "mnemonic": "Close the window shutter.",
+    "priorDifficulty": 0.5
   },
   "shuttle": {
     "confusedWith": [
@@ -14747,6 +16221,27 @@
     "mnemonic": "It is significant to sign.",
     "priorDifficulty": 0.6
   },
+  "simplicity": {
+    "confusedWith": [
+      "complexity"
+    ],
+    "mnemonic": "Simplicity is the quality of being simple.",
+    "priorDifficulty": 0.4
+  },
+  "simplify": {
+    "confusedWith": [
+      "amplify"
+    ],
+    "mnemonic": "Simplify math problems to make them easy.",
+    "priorDifficulty": 0.4
+  },
+  "simultaneous": {
+    "confusedWith": [
+      "spontaneous"
+    ],
+    "mnemonic": "Simultaneous events happen at the same time.",
+    "priorDifficulty": 0.7
+  },
   "sincerity": {
     "confusedWith": [],
     "mnemonic": "Sincere people show sincerity.",
@@ -14771,10 +16266,20 @@
     "mnemonic": "Skeleton has a set of bones.",
     "priorDifficulty": 0.5
   },
+  "skeptical": {
+    "confusedWith": [],
+    "mnemonic": "Be skeptical and doubt things.",
+    "priorDifficulty": 0.6
+  },
   "sketch": {
     "confusedWith": [],
     "mnemonic": "Sketch a sketch with a pencil.",
     "priorDifficulty": 0.3
+  },
+  "skim": {
+    "confusedWith": [],
+    "mnemonic": "Skim over the text to get the main idea.",
+    "priorDifficulty": 0.4
   },
   "skull": {
     "confusedWith": [],
@@ -14793,6 +16298,14 @@
     "mnemonic": "Slam the door with a bam.",
     "priorDifficulty": 0.35
   },
+  "slang": {
+    "confusedWith": [
+      "slap",
+      "slash"
+    ],
+    "mnemonic": "Teens love using cool slang words.",
+    "priorDifficulty": 0.4
+  },
   "slap": {
     "confusedWith": [
       "slam"
@@ -14800,10 +16313,27 @@
     "mnemonic": "Slap with an open palm.",
     "priorDifficulty": 0.35
   },
+  "slash": {
+    "confusedWith": [
+      "smash"
+    ],
+    "mnemonic": "Slash prices or cut with a knife.",
+    "priorDifficulty": 0.4
+  },
+  "slaughter": {
+    "confusedWith": [],
+    "mnemonic": "Slaughter sounds like laughter but is deadly.",
+    "priorDifficulty": 0.6
+  },
   "slavery": {
     "confusedWith": [],
     "mnemonic": "Slavery is not bravery.",
     "priorDifficulty": 0.5
+  },
+  "slay": {
+    "confusedWith": [],
+    "mnemonic": "Heroes slay dragons.",
+    "priorDifficulty": 0.4
   },
   "slight": {
     "confusedWith": [],
@@ -14815,11 +16345,33 @@
     "mnemonic": "Say a slogan slowly.",
     "priorDifficulty": 0.4
   },
+  "sloppy": {
+    "confusedWith": [],
+    "mnemonic": "Sloppy work is messy and careless.",
+    "priorDifficulty": 0.4
+  },
   "slot": {
     "confusedWith": [
       "plot"
     ],
     "mnemonic": "Put a coin in the slot.",
+    "priorDifficulty": 0.4
+  },
+  "slum": {
+    "confusedWith": [
+      "plum"
+    ],
+    "mnemonic": "Slums are poor urban areas.",
+    "priorDifficulty": 0.5
+  },
+  "slump": {
+    "confusedWith": [],
+    "mnemonic": "Sales went into a sudden slump.",
+    "priorDifficulty": 0.5
+  },
+  "sly": {
+    "confusedWith": [],
+    "mnemonic": "A sly fox is cunning.",
     "priorDifficulty": 0.4
   },
   "smash": {
@@ -14831,6 +16383,13 @@
     "confusedWith": [],
     "mnemonic": "Smog is smoke plus fog.",
     "priorDifficulty": 0.3
+  },
+  "smuggle": {
+    "confusedWith": [
+      "snatch"
+    ],
+    "mnemonic": "Smuggle goods secretly across borders.",
+    "priorDifficulty": 0.6
   },
   "snatch": {
     "confusedWith": [
@@ -14845,11 +16404,31 @@
     "mnemonic": "Sneak like a snake.",
     "priorDifficulty": 0.4
   },
+  "sneaker": {
+    "confusedWith": [],
+    "mnemonic": "Wear sneakers to run fast.",
+    "priorDifficulty": 0.3
+  },
+  "sneaky": {
+    "confusedWith": [],
+    "mnemonic": "Sneaky people move like a snake.",
+    "priorDifficulty": 0.4
+  },
+  "sneeze": {
+    "confusedWith": [],
+    "mnemonic": "Achoo! Time to sneeze.",
+    "priorDifficulty": 0.3
+  },
   "sniff": {
     "confusedWith": [
       "cliff"
     ],
     "mnemonic": "Sniff with your nose.",
+    "priorDifficulty": 0.4
+  },
+  "snore": {
+    "confusedWith": [],
+    "mnemonic": "He snores loudly while sleeping.",
     "priorDifficulty": 0.4
   },
   "soak": {
@@ -14873,6 +16452,40 @@
     ],
     "mnemonic": "Stay sober, do not drink.",
     "priorDifficulty": 0.5
+  },
+  "sociable": {
+    "confusedWith": [
+      "sustainable"
+    ],
+    "mnemonic": "Sociable people love talking to others.",
+    "priorDifficulty": 0.5
+  },
+  "socialism": {
+    "confusedWith": [
+      "capitalism"
+    ],
+    "mnemonic": "Socialism is an economic system.",
+    "priorDifficulty": 0.6
+  },
+  "socialist": {
+    "confusedWith": [
+      "capitalist"
+    ],
+    "mnemonic": "A socialist believes in socialism.",
+    "priorDifficulty": 0.6
+  },
+  "socialize": {
+    "confusedWith": [],
+    "mnemonic": "Socialize at the party with friends.",
+    "priorDifficulty": 0.4
+  },
+  "sociology": {
+    "confusedWith": [
+      "biology",
+      "psychology"
+    ],
+    "mnemonic": "Sociology is the study of society.",
+    "priorDifficulty": 0.6
   },
   "socket": {
     "confusedWith": [],
@@ -16024,6 +17637,11 @@
     "mnemonic": "Trees sway in the wind.",
     "priorDifficulty": 0.3
   },
+  "syllable": {
+    "confusedWith": [],
+    "mnemonic": "Divide words into syllables to read easily.",
+    "priorDifficulty": 0.45
+  },
   "symbolic": {
     "confusedWith": [
       "symbolize"
@@ -16045,6 +17663,13 @@
     "mnemonic": "Same pattern on both sides creating balanced geometry.",
     "priorDifficulty": 0.7
   },
+  "sympathetic": {
+    "confusedWith": [
+      "sympathy"
+    ],
+    "mnemonic": "Showing path to feel with someone.",
+    "priorDifficulty": 0.5
+  },
   "sympathize": {
     "confusedWith": [
       "sympathy",
@@ -16052,6 +17677,13 @@
     ],
     "mnemonic": "Feel sympathy and share emotional feelings with someone in pain.",
     "priorDifficulty": 0.58
+  },
+  "sympathy": {
+    "confusedWith": [
+      "sympathetic"
+    ],
+    "mnemonic": "Path of sharing feelings with others.",
+    "priorDifficulty": 0.45
   },
   "symphony": {
     "confusedWith": [
@@ -16093,6 +17725,11 @@
     "mnemonic": "Sweet sticky liquid poured on pancakes.",
     "priorDifficulty": 0.55
   },
+  "systematic": {
+    "confusedWith": [],
+    "mnemonic": "A system operating methodically.",
+    "priorDifficulty": 0.55
+  },
   "tackle": {
     "confusedWith": [
       "tactic"
@@ -16117,6 +17754,20 @@
     "mnemonic": "Threads tangle up into a messy knot.",
     "priorDifficulty": 0.4
   },
+  "technician": {
+    "confusedWith": [
+      "technological"
+    ],
+    "mnemonic": "A technical person who fixes things.",
+    "priorDifficulty": 0.5
+  },
+  "technological": {
+    "confusedWith": [
+      "technician"
+    ],
+    "mnemonic": "Relating to advanced technology.",
+    "priorDifficulty": 0.6
+  },
   "tedious": {
     "confusedWith": [],
     "mnemonic": "So boring and slow that it makes you feel tired and stressed.",
@@ -16127,6 +17778,20 @@
       "communication"
     ],
     "mnemonic": "Distance communication through electronic signals and phones.",
+    "priorDifficulty": 0.6
+  },
+  "telegraph": {
+    "confusedWith": [
+      "telescope"
+    ],
+    "mnemonic": "Tele means far, graph means write.",
+    "priorDifficulty": 0.65
+  },
+  "telescope": {
+    "confusedWith": [
+      "telegraph"
+    ],
+    "mnemonic": "Tele means far, scope means look.",
     "priorDifficulty": 0.6
   },
   "teller": {
@@ -16158,6 +17823,25 @@
     "mnemonic": "Someone who rents and lives in a landlord's property.",
     "priorDifficulty": 0.68
   },
+  "tendency": {
+    "confusedWith": [],
+    "mnemonic": "Tend to go in a certain direction.",
+    "priorDifficulty": 0.5
+  },
+  "tense": {
+    "confusedWith": [
+      "tension"
+    ],
+    "mnemonic": "Tense muscles feel tight.",
+    "priorDifficulty": 0.4
+  },
+  "tension": {
+    "confusedWith": [
+      "tense"
+    ],
+    "mnemonic": "Tension is the noun form of tense.",
+    "priorDifficulty": 0.5
+  },
   "tentative": {
     "confusedWith": [],
     "mnemonic": "Not final yet, just an experimental attempt.",
@@ -16180,6 +17864,11 @@
     "mnemonic": "Monsters terrify people with fear.",
     "priorDifficulty": 0.3
   },
+  "terror": {
+    "confusedWith": [],
+    "mnemonic": "Terror brings extreme fear.",
+    "priorDifficulty": 0.4
+  },
   "testify": {
     "confusedWith": [],
     "mnemonic": "Testify in court after taking a test of honesty.",
@@ -16201,6 +17890,11 @@
     "confusedWith": [],
     "mnemonic": "A thief commits a theft.",
     "priorDifficulty": 0.3
+  },
+  "theme": {
+    "confusedWith": [],
+    "mnemonic": "The main topic or theme.",
+    "priorDifficulty": 0.35
   },
   "theology": {
     "confusedWith": [],
@@ -16257,6 +17951,16 @@
     "mnemonic": "High up on your leg is your thigh.",
     "priorDifficulty": 0.3
   },
+  "thorough": {
+    "confusedWith": [],
+    "mnemonic": "Through and through, very complete.",
+    "priorDifficulty": 0.6
+  },
+  "thoughtful": {
+    "confusedWith": [],
+    "mnemonic": "Full of thoughts for others.",
+    "priorDifficulty": 0.35
+  },
   "threshold": {
     "confusedWith": [],
     "mnemonic": "Step over the threshold into the house.",
@@ -16298,6 +18002,11 @@
     "mnemonic": "Clocks make a tick sound every second.",
     "priorDifficulty": 0.3
   },
+  "tickle": {
+    "confusedWith": [],
+    "mnemonic": "Tickle makes you giggle.",
+    "priorDifficulty": 0.45
+  },
   "tile": {
     "confusedWith": [],
     "mnemonic": "Lay a ceramic tile on the bathroom floor.",
@@ -16307,6 +18016,16 @@
     "confusedWith": [],
     "mnemonic": "Slant or lean to one side off balance.",
     "priorDifficulty": 0.62
+  },
+  "timetable": {
+    "confusedWith": [],
+    "mnemonic": "Table showing times of events.",
+    "priorDifficulty": 0.35
+  },
+  "timid": {
+    "confusedWith": [],
+    "mnemonic": "Too shy and timid like a mouse.",
+    "priorDifficulty": 0.45
   },
   "tin": {
     "confusedWith": [
@@ -16330,10 +18049,51 @@
     "mnemonic": "Small object or coin used as a symbol of appreciation.",
     "priorDifficulty": 0.55
   },
+  "tolerable": {
+    "confusedWith": [
+      "tolerance",
+      "tolerant",
+      "tolerate"
+    ],
+    "mnemonic": "Able to be tolerated.",
+    "priorDifficulty": 0.55
+  },
+  "tolerance": {
+    "confusedWith": [
+      "tolerable",
+      "tolerant",
+      "tolerate"
+    ],
+    "mnemonic": "The noun for enduring things.",
+    "priorDifficulty": 0.6
+  },
+  "tolerant": {
+    "confusedWith": [
+      "tolerable",
+      "tolerance",
+      "tolerate"
+    ],
+    "mnemonic": "Being patient and open-minded.",
+    "priorDifficulty": 0.55
+  },
+  "tolerate": {
+    "confusedWith": [
+      "tolerable",
+      "tolerance",
+      "tolerant"
+    ],
+    "mnemonic": "To put up with something.",
+    "priorDifficulty": 0.5
+  },
   "toll": {
     "confusedWith": [],
     "mnemonic": "Pay a toll to cross the highway bridge.",
     "priorDifficulty": 0.4
+  },
+  "tomb": {
+    "confusedWith": [],
+    "mnemonic": "A silent resting place.",
+    "priorDifficulty": 0.5
   },
   "torch": {
     "confusedWith": [],
@@ -16360,6 +18120,16 @@
     "mnemonic": "A torrent of water pours down like a rent in the sky.",
     "priorDifficulty": 0.55
   },
+  "tortoise": {
+    "confusedWith": [],
+    "mnemonic": "Slow and steady wins the race.",
+    "priorDifficulty": 0.65
+  },
+  "torture": {
+    "confusedWith": [],
+    "mnemonic": "Severe pain and suffering.",
+    "priorDifficulty": 0.6
+  },
   "tournament": {
     "confusedWith": [],
     "mnemonic": "Turn to win in a sports tournament.",
@@ -16376,6 +18146,20 @@
     ],
     "mnemonic": "A mark used in trade to identify a registered brand.",
     "priorDifficulty": 0.35
+  },
+  "tragedy": {
+    "confusedWith": [
+      "tragic"
+    ],
+    "mnemonic": "A very sad event.",
+    "priorDifficulty": 0.5
+  },
+  "tragic": {
+    "confusedWith": [
+      "tragedy"
+    ],
+    "mnemonic": "Adjective form of tragedy.",
+    "priorDifficulty": 0.45
   },
   "trait": {
     "confusedWith": [],
@@ -16402,6 +18186,21 @@
     "mnemonic": "A script or written copy of spoken words or grades.",
     "priorDifficulty": 0.45
   },
+  "transfer": {
+    "confusedWith": [
+      "transform",
+      "translate"
+    ],
+    "mnemonic": "Move from here to there.",
+    "priorDifficulty": 0.45
+  },
+  "transform": {
+    "confusedWith": [
+      "transfer"
+    ],
+    "mnemonic": "Change form completely.",
+    "priorDifficulty": 0.5
+  },
   "transformation": {
     "confusedWith": [
       "translation"
@@ -16423,6 +18222,30 @@
     ],
     "mnemonic": "Transition is a shift from one condition to another.",
     "priorDifficulty": 0.5
+  },
+  "translate": {
+    "confusedWith": [
+      "translation",
+      "translator"
+    ],
+    "mnemonic": "Turn one language into another.",
+    "priorDifficulty": 0.4
+  },
+  "translation": {
+    "confusedWith": [
+      "translate",
+      "translator"
+    ],
+    "mnemonic": "The translated result.",
+    "priorDifficulty": 0.45
+  },
+  "translator": {
+    "confusedWith": [
+      "translate",
+      "translation"
+    ],
+    "mnemonic": "A person who translates.",
+    "priorDifficulty": 0.45
   },
   "transmission": {
     "confusedWith": [
@@ -16455,6 +18278,11 @@
     "mnemonic": "Plant an organ into a new body part or place.",
     "priorDifficulty": 0.45
   },
+  "transportation": {
+    "confusedWith": [],
+    "mnemonic": "Transports people and goods.",
+    "priorDifficulty": 0.5
+  },
   "trauma": {
     "confusedWith": [],
     "mnemonic": "Severe trauma feels like extreme drama.",
@@ -16477,6 +18305,25 @@
     "confusedWith": [],
     "mnemonic": "A long, difficult hike or trek through rugged mountains.",
     "priorDifficulty": 0.6
+  },
+  "tremble": {
+    "confusedWith": [
+      "tremendous"
+    ],
+    "mnemonic": "Shaking from fear or cold.",
+    "priorDifficulty": 0.5
+  },
+  "tremendous": {
+    "confusedWith": [
+      "tremble"
+    ],
+    "mnemonic": "Tremendously huge and great.",
+    "priorDifficulty": 0.6
+  },
+  "tribal": {
+    "confusedWith": [],
+    "mnemonic": "Relating to a tribe.",
+    "priorDifficulty": 0.45
   },
   "tribute": {
     "confusedWith": [
@@ -16515,6 +18362,11 @@
     "mnemonic": "Triple three times as much.",
     "priorDifficulty": 0.2
   },
+  "triumph": {
+    "confusedWith": [],
+    "mnemonic": "A great victory or success.",
+    "priorDifficulty": 0.55
+  },
   "trivial": {
     "confusedWith": [],
     "mnemonic": "Trivial things are too small to trouble over.",
@@ -16531,6 +18383,11 @@
     ],
     "mnemonic": "Sun shines bright near the equator in the tropical tropic region.",
     "priorDifficulty": 0.5
+  },
+  "troublesome": {
+    "confusedWith": [],
+    "mnemonic": "Full of trouble.",
+    "priorDifficulty": 0.4
   },
   "trout": {
     "confusedWith": [
@@ -16560,6 +18417,11 @@
     "mnemonic": "Tuition fees feed your education.",
     "priorDifficulty": 0.5
   },
+  "tumble": {
+    "confusedWith": [],
+    "mnemonic": "Fall down clumsily.",
+    "priorDifficulty": 0.45
+  },
   "tumor": {
     "confusedWith": [],
     "mnemonic": "Tumor: true horror inside the body.",
@@ -16576,6 +18438,11 @@
     ],
     "mnemonic": "Great confusion and turmoil boiling up inside a crowd.",
     "priorDifficulty": 0.65
+  },
+  "twig": {
+    "confusedWith": [],
+    "mnemonic": "A tiny tree branch.",
+    "priorDifficulty": 0.4
   },
   "twilight": {
     "confusedWith": [
@@ -16707,6 +18574,11 @@
     "mnemonic": "Make separate groups unite into a single strong body.",
     "priorDifficulty": 0.45
   },
+  "universal": {
+    "confusedWith": [],
+    "mnemonic": "Affecting the entire universe.",
+    "priorDifficulty": 0.55
+  },
   "unlock": {
     "confusedWith": [],
     "mnemonic": "Unlock to open the lock.",
@@ -16770,12 +18642,31 @@
     "mnemonic": "Directed towards a higher point, moving upwards into the air.",
     "priorDifficulty": 0.3
   },
+  "urge": {
+    "confusedWith": [
+      "urgent"
+    ],
+    "mnemonic": "A strong impulse or desire.",
+    "priorDifficulty": 0.45
+  },
   "urgency": {
     "confusedWith": [
       "urgent"
     ],
     "mnemonic": "Urgent need requiring immediate attention and swift action.",
     "priorDifficulty": 0.45
+  },
+  "urgent": {
+    "confusedWith": [
+      "urge"
+    ],
+    "mnemonic": "Needing immediate attention.",
+    "priorDifficulty": 0.45
+  },
+  "usage": {
+    "confusedWith": [],
+    "mnemonic": "How words are used.",
+    "priorDifficulty": 0.4
   },
   "usher": {
     "confusedWith": [],
@@ -16805,6 +18696,11 @@
     "confusedWith": [],
     "mnemonic": "To speak or utter words out loud from your mouth.",
     "priorDifficulty": 0.55
+  },
+  "vacancy": {
+    "confusedWith": [],
+    "mnemonic": "An empty room or space.",
+    "priorDifficulty": 0.5
   },
   "vaccine": {
     "confusedWith": [
