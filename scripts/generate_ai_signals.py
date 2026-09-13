@@ -51,7 +51,7 @@ VOCAB_PATH = ROOT / "data" / "vocab.json"
 SIGNALS_PATH = ROOT / "data" / "ai_signals.json"
 
 API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.6-flash"
 DEFAULT_BATCH_SIZE = 45
 DEFAULT_CONCURRENCY = 3
 MAX_RETRIES = 4
